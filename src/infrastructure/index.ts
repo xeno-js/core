@@ -1,5 +1,5 @@
 export * from './builder'
 export * from './http'
 export * from './modules'
+export * from './plugin'
 export * from './repositories'
-export type * from './xeno-registry'

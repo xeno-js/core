@@ -1,6 +1,5 @@
+import type { ICryptoService, ICsrfTokenService } from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
-
-import type { ICryptoService, ICsrfTokenService } from '@/domain'
 
 /**
  * @description Service for generating and validating CSRF tokens

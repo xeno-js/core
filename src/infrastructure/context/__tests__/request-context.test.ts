@@ -2,11 +2,9 @@
 
 import type { Identity, IFactory, RequestContext } from '@xeno-js/shared'
 import type { Guid } from '@xeno-js/shared'
+import type { ExecutionContext, IServiceScope, XenoRegistry } from '@xeno-js/shared'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ExecutionContext, IServiceScope } from '@/domain'
-
-import type { XenoRegistry } from '../../xeno-registry'
 import { NodeRequestContext } from '../request-context'
 
 function makeStorage() {
@@ -62,7 +60,6 @@ function makeRequestContext(): RequestContext {
       userAgent: 'Mozilla/5.0',
       formatIndicator: 'json',
       path: '/api/test',
-      transport: undefined,
       csrf: '',
       csrfCookie: '',
       origin: '',

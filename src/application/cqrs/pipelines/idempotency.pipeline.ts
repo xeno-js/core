@@ -1,11 +1,14 @@
+/* eslint-disable @typescript-eslint/naming-convention */
 import type {
   Delegate,
   ICommand,
   IIdempotencyStore,
   INetworkContextAccessor,
   IPipelineBehavior,
+  Optional,
   ResultType,
 } from '@xeno-js/shared'
+import type { IdempotencyOptions } from '@xeno-js/shared'
 import { AppError, Result } from '@xeno-js/shared'
 import { Guards, IDEMPOTENCY_CONSTANTS } from '@xeno-js/shared'
 
@@ -21,58 +24,25 @@ export class IdempotencyPipeline<
   TInput extends ICommand<TResult>,
   TResult,
 > implements IPipelineBehavior<TInput, TResult> {
-  /** @description TTL (time-to-live) in seconds for locks acquired in the idempotency mechanism. This value determines how long a lock will be held for a given command ID when it is being processed. If a lock is not released within this time frame, it will automatically expire, allowing other instances of the command to be processed. The default value is set to 300 seconds (5 minutes), which provides a reasonable balance between allowing sufficient time for command processing and preventing long-term locks that could lead to delays in processing subsequent commands with the same ID. This value can be overridden by providing a different lockTtlSeconds value when constructing the IdempotencyPipeline instance.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private readonly _lockTtlSeconds: number
-  /** @description TTL (time-to-live) in seconds for processed command results stored in the idempotency mechanism. This value determines how long the result of a processed command will be stored and available for retrieval when subsequent requests with the same command ID are received. If a result is not retrieved within this time frame, it will automatically expire and be removed from the store, meaning that subsequent requests with the same command ID will not be able to retrieve the previous result and may need to reprocess the command. The default value is set to 86400 seconds (24 hours), which allows for a reasonable window of time for clients to retrieve results of processed commands while also ensuring that stale results do not persist indefinitely in the store. This value can be overridden by providing a different processedTtlSeconds value when constructing the IdempotencyPipeline instance.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private readonly _processedTtlSeconds: number
+  private static readonly DEFAULT_LOCK_TTL =
+    IDEMPOTENCY_CONSTANTS.DEFAULT_IDEMPOTENCY_LOCK_TTL_SECONDS
+  private static readonly DEFAULT_PROCESSED_TTL = IDEMPOTENCY_CONSTANTS.DEFAULT_TTL_SECONDS
 
   /**
    * @description Constructs a new instance of the IdempotencyPipeline class, which requires an IIdempotencyStore for managing locks and storing results of processed commands. The constructor also accepts optional parameters for configuring the TTL (time-to-live) values for locks and processed results, allowing for customization of the idempotency behavior based on the specific needs of the application. The constructor validates the input parameters to ensure that they are positive integers and throws an error if they are not, ensuring that the pipeline is configured with valid TTL values for proper functioning of the idempotency mechanism.
    * @param idempotencyStore An instance of IIdempotencyStore used for managing locks and storing results of processed commands in the idempotency mechanism. This store is essential for ensuring that commands with the same ID are processed in an idempotent manner, allowing the pipeline to handle concurrent requests safely and efficiently while preventing duplicate processing of commands.
-   * @param lockTtlSeconds TTL (time-to-live) in seconds for locks acquired in the idempotency mechanism. This value determines how long a lock will be held for a given command ID when it is being processed. If a lock is not released within this time frame, it will automatically expire, allowing other instances of the command to be processed. The default value is set to 300 seconds (5 minutes), which provides a reasonable balance between allowing sufficient time for command processing and preventing long-term locks that could lead to delays in processing subsequent commands with the same ID. This value can be overridden by providing a different lockTtlSeconds value when constructing the IdempotencyPipeline instance.
-   * @param processedTtlSeconds TTL (time-to-live) in seconds for processed command results stored in the idempotency mechanism. This value determines how long the result of a processed command will be stored and available for retrieval when subsequent requests with the same command ID are received. If a result is not retrieved within this time frame, it will automatically expire and be removed from the store, meaning that subsequent requests with the same command ID will not be able to retrieve the previous result and may need to reprocess the command. The default value is set to 86400 seconds (24 hours), which allows for a reasonable window of time for clients to retrieve results of processed commands while also ensuring that stale results do not persist indefinitely in the store. This value can be overridden by providing a different processedTtlSeconds value when constructing the IdempotencyPipeline instance.
-   * @throws Will throw an error if the provided lockTtlSeconds or processedTtlSeconds values are not positive integers, ensuring that the pipeline is configured with valid TTL values for proper functioning of the idempotency mechanism.
-   
-   * 
+   * @param _options Optional configuration options for the idempotency pipeline, including the TTL values for locks and processed results. These options allow for customization of the idempotency behavior based on the specific needs of the application. The constructor validates the input options to ensure that they are positive integers and throws an error if they are not, ensuring that the pipeline is configured with valid TTL values for proper functioning of the idempotency mechanism.
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
   constructor(
     private readonly _requestContextFactory: INetworkContextAccessor,
     private readonly _idempotencyStore: IIdempotencyStore,
-    lockTtlSeconds: number = IDEMPOTENCY_CONSTANTS.DEFAULT_IDEMPOTENCY_LOCK_TTL_SECONDS,
-    processedTtlSeconds: number = IDEMPOTENCY_CONSTANTS.DEFAULT_TTL_SECONDS,
-  ) {
-    const values: number[] = [lockTtlSeconds, processedTtlSeconds]
-    const errorMessages = [
-      `Invalid lockTtlSeconds value: ${lockTtlSeconds}. It must be a positive integer.`,
-      `Invalid processedTtlSeconds value: ${processedTtlSeconds}. It must be a positive integer.`,
-    ]
-    values.forEach((value, index) => {
-      Guards.throwIfNotInteger(value, errorMessages[index])
-      Guards.throwIfNegative(value, errorMessages[index])
-      if (value === 0) {
-        throw new Error(errorMessages[index])
-      }
-    })
-
-    this._lockTtlSeconds = lockTtlSeconds
-    this._processedTtlSeconds = processedTtlSeconds
-  }
+    private readonly _options: Optional<IdempotencyOptions> = undefined,
+  ) {}
 
   public async handle(request: TInput, next: Delegate<TResult>): Promise<ResultType<TResult>> {
     const network = this._requestContextFactory.getNetworkContext()
@@ -80,9 +50,20 @@ export class IdempotencyPipeline<
       return Result.fail(
         AppError.conflict(
           request.intent,
-          `Network context is not defined for request ${request.intent}`,
+          `network context is not defined for request ${request.intent}`,
         ),
       )
+
+    const intentConfig = this._options?.intentRegistry?.[request.intent]
+    const lockTtl =
+      intentConfig?.lockTtlSeconds ??
+      this._options?.lockTtlSeconds ??
+      IdempotencyPipeline.DEFAULT_LOCK_TTL
+
+    const processedTtl =
+      intentConfig?.processedTtlSeconds ??
+      this._options?.processedTtlSeconds ??
+      IdempotencyPipeline.DEFAULT_PROCESSED_TTL
 
     try {
       const alreadyProcessed = await this._idempotencyStore.hasBeenProcessed(network.requestId)
@@ -100,10 +81,7 @@ export class IdempotencyPipeline<
         }
       }
 
-      const lockAcquired = await this._idempotencyStore.acquireLock(
-        network.requestId,
-        this._lockTtlSeconds,
-      )
+      const lockAcquired = await this._idempotencyStore.acquireLock(network.requestId, lockTtl)
 
       if (!lockAcquired) {
         return Result.fail(
@@ -119,8 +97,8 @@ export class IdempotencyPipeline<
       if (result.isOk()) {
         await this._idempotencyStore.markAsProcessed(
           network.requestId,
-          result.getValueOrThrow(),
-          this._processedTtlSeconds,
+          result.getValueOrThrow() ?? { success: true },
+          processedTtl,
         )
       } else {
         await this._idempotencyStore.releaseLock(network.requestId)

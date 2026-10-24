@@ -1,4 +1,4 @@
-import type { ExtendedRequest, IMiddleware, ResponseDto } from '@xeno-js/shared'
+import type { IMiddleware, ResponseDto, XenoRequest } from '@xeno-js/shared'
 
 /**
  * @description A middleware that executes a list of middlewares in a chain.
@@ -11,9 +11,8 @@ import type { ExtendedRequest, IMiddleware, ResponseDto } from '@xeno-js/shared'
 export class CompositeMiddleware implements IMiddleware {
   constructor(private readonly _middlewares: IMiddleware[]) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     let currentNext = next
@@ -21,7 +20,7 @@ export class CompositeMiddleware implements IMiddleware {
     for (let i = this._middlewares.length - 1; i >= 0; i--) {
       const currentBehavior = this._middlewares[i]
       const previousNext = currentNext
-      currentNext = () => currentBehavior.execute(req, res, previousNext)
+      currentNext = () => currentBehavior.execute(req, previousNext)
     }
 
     return currentNext()

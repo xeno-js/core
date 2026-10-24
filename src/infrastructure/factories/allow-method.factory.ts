@@ -1,6 +1,5 @@
-import type { Dictionary, HttpMethod, IFactory } from '@xeno-js/shared'
-
-import type { IAllowMethod } from '@/domain'
+import type { HttpMethod } from '@xeno-js/shared'
+import type { IAllowMethod, NativeRouteDefinition, XenoRegistry } from '@xeno-js/shared'
 
 import { AllowMethodRegistry } from '../services'
 
@@ -13,13 +12,24 @@ import { AllowMethodRegistry } from '../services'
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js 
    */
-export class AllowMethodFactory implements IFactory<Dictionary<HttpMethod[]>, IAllowMethod> {
-  public create(opts: Dictionary<HttpMethod[]>): IAllowMethod {
+export class AllowMethodFactory {
+  public create<TRegistry extends XenoRegistry = XenoRegistry>(
+    opts: NativeRouteDefinition<TRegistry>[],
+  ): IAllowMethod {
     const allowMethodService = new AllowMethodRegistry()
 
-    // 2. Iteriamo sugli schemi passati nella configurazione e li registriamo (Ora in modo sincrono!)
-    for (const [intentKey, schema] of Object.entries(opts)) {
-      allowMethodService.add(intentKey, schema)
+    const routes = opts ?? []
+    const routesMap = new Map<string, HttpMethod[]>()
+    for (const r of routes) {
+      const methods = routesMap.get(r.path) ?? []
+      if (!methods.includes(r.method)) {
+        methods.push(r.method)
+      }
+      routesMap.set(r.path, methods)
+    }
+
+    for (const [path, methods] of routesMap) {
+      allowMethodService.add(path, methods)
     }
 
     return allowMethodService

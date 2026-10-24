@@ -1,185 +1,137 @@
 ﻿import type { IConfigurationService, INetworkContextAccessor } from '@xeno-js/shared'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { CookieHandlerOptions, ISsrCookieToSet } from '@/domain'
+import type { ISsrCookieToSet } from '@xeno-js/shared'
+import { describe, expect, it, vi } from 'vitest'
 
 import { CookieHandler } from '../cookies.service'
 
-function makeConfig(nodeEnv = 'development'): IConfigurationService {
-  return {
+function makeHandler(
+  context: { cookies?: string } | undefined,
+  nodeEnv = 'development',
+  defaultOptions?: Partial<ISsrCookieToSet>,
+): CookieHandler {
+  const contextAccessor = {
+    getNetworkContext: vi.fn(() => context),
+  } as unknown as INetworkContextAccessor
+  const config = {
     get: vi.fn((key: string) => (key === 'NODE_ENV' ? nodeEnv : undefined)),
   } as unknown as IConfigurationService
-}
 
-function makeRequestHeaders(cookieHeader?: string) {
-  return {
-    get: vi.fn((name: string) => (name === 'cookie' ? (cookieHeader ?? null) : undefined)),
-  }
-}
-
-function makeContextAccessor(cookieHeader?: string, responseCookies: string[] = []) {
-  const req = { headers: makeRequestHeaders(cookieHeader) }
-  const res = {
-    headers: {
-      getSetCookie: vi.fn(() => [...responseCookies]),
-      delete: vi.fn(),
-      append: vi.fn(),
-    },
-  }
-
-  const accessor: INetworkContextAccessor = {
-    getNetworkContext: vi.fn(() => ({
-      requestId: 'req-123' as never,
-      clientIp: '127.0.0.1',
-      transport: { req, res },
-    })),
-  } as unknown as INetworkContextAccessor
-
-  return { accessor, res }
+  return new CookieHandler(contextAccessor, config, defaultOptions)
 }
 
 describe('CookieHandler', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
+  it('returns an empty list when the network context or cookie header is missing', () => {
+    expect(makeHandler(undefined).getAll()).toEqual([])
+    expect(makeHandler({}).getAll()).toEqual([])
+    expect(makeHandler({ cookies: '' }).getAll()).toEqual([])
   })
 
-  it('returns an empty list when there is no request or cookie header', () => {
-    const config = makeConfig()
-
-    expect(
-      new CookieHandler(
-        {
-          getNetworkContext: vi.fn(() => undefined),
-        },
-        config,
-        { httpOnly: true, path: '/' },
-      ).getAll(),
-    ).toEqual([])
-
-    const withEmptyCookie = new CookieHandler(
-      {
-        getNetworkContext: vi.fn(() => ({
-          transport: {
-            req: { headers: makeRequestHeaders('') },
-          },
-        })),
-      } as unknown as INetworkContextAccessor,
-      config,
-      { httpOnly: true, path: '/' },
-    )
-
-    expect(withEmptyCookie.getAll()).toEqual([])
-  })
-
-  it('reads all cookies from the request header and preserves values with equals signs', () => {
-    const config = makeConfig()
-    const { accessor } = makeContextAccessor('session=abc123; theme=dark; auth=jwt=token')
-    const handler = new CookieHandler(accessor, config, { httpOnly: true, path: '/' })
+  it('parses cookie pairs, trims whitespace, and preserves values containing equals signs', () => {
+    const handler = makeHandler({
+      cookies: ' session = abc123 ; flag; theme=dark; auth=jwt=token; =ignored ',
+    })
 
     expect(handler.getAll()).toEqual([
       { name: 'session', value: 'abc123' },
+      { name: 'flag', value: '' },
       { name: 'theme', value: 'dark' },
       { name: 'auth', value: 'jwt=token' },
     ])
   })
 
-  it('returns early when the response is missing and serializes cookies otherwise', () => {
-    const config = makeConfig()
-    const appendSpy = vi.fn()
-    const deleteSpy = vi.fn()
-    const existingSetCookie = vi.fn(() => ['legacy=1; Path=/'])
+  it('decodes cookie values and keeps the raw value when decoding fails', () => {
+    const handler = makeHandler({ cookies: 'encoded=hello%20world; malformed=%E0%A4%A' })
 
-    const withoutResponse = new CookieHandler(
-      {
-        getNetworkContext: vi.fn(() => ({
-          transport: { req: { headers: makeRequestHeaders('token=abc') } },
-        })),
-      } as unknown as INetworkContextAccessor,
-      config,
-      { httpOnly: true, path: '/' },
-    )
-
-    withoutResponse.setAll([{ name: 'session', value: 'abc123' }])
-    expect(appendSpy).not.toHaveBeenCalled()
-
-    const withResponse = new CookieHandler(
-      {
-        getNetworkContext: vi.fn(() => ({
-          requestId: 'r-1' as never,
-          transport: {
-            req: { headers: makeRequestHeaders('token=abc') },
-            res: {
-              headers: { getSetCookie: existingSetCookie, delete: deleteSpy, append: appendSpy },
-            },
-          },
-        })),
-      } as unknown as INetworkContextAccessor,
-      config,
-      { httpOnly: true, path: '/' },
-    )
-
-    withResponse.setAll([{ name: 'session', value: 'abc123' }])
-
-    expect(deleteSpy).toHaveBeenCalledWith('Set-Cookie')
-    expect(existingSetCookie).toHaveBeenCalledOnce()
-    expect(appendSpy).toHaveBeenCalledTimes(2)
+    expect(handler.getAll()).toEqual([
+      { name: 'encoded', value: 'hello world' },
+      { name: 'malformed', value: '%E0%A4%A' },
+    ])
   })
 
-  it('serializes cookies with production defaults and preserves existing Set-Cookie values', () => {
-    const config = makeConfig('production')
-    const options: CookieHandlerOptions = { path: '/app', httpOnly: true, secure: false }
-    const { accessor, res } = makeContextAccessor('token=abc', ['legacy=old; Path=/'])
-    const handler = new CookieHandler(accessor, config, options)
-
+  it('queues cookies and serializes encoded values with production defaults and attributes', () => {
+    const handler = makeHandler(undefined, 'production')
+    const expires = new Date('2030-01-02T03:04:05.000Z')
     const cookies: ISsrCookieToSet[] = [
       {
-        name: 'token',
-        value: 'abc+123',
-        options: { domain: 'example.com', maxAge: 3600, sameSite: 'strict' },
-      },
-      {
-        name: 'theme',
-        value: 'dark',
+        name: 'session id',
+        value: 'a+b',
+        path: '/app',
+        maxAge: 3600,
+        expires,
+        domain: 'example.com',
+        secure: true,
+        httpOnly: true,
+        sameSite: 'strict',
+        partitioned: true,
+        priority: 'high',
       },
     ]
 
     handler.setAll(cookies)
 
-    expect(res.headers.delete).toHaveBeenCalledWith('Set-Cookie')
-    expect(res.headers.append).toHaveBeenCalledTimes(3)
+    expect(handler.getPendingCookies()).toEqual([
+      'session%20id=a%2Bb; Path=/app; Max-Age=3600; Expires=Wed, 02 Jan 2030 03:04:05 GMT; Domain=example.com; Secure; HttpOnly; SameSite=Strict; Partitioned; Priority=High',
+    ])
+    expect(handler.getPendingCookies()).toEqual(handler.getPendingCookies())
+  })
 
-    const appendCalls = (res.headers.append as ReturnType<typeof vi.fn>).mock.calls as [
-      string,
-      string,
-    ][]
-    const serializedToken = appendCalls[1][1]
-    expect(serializedToken).toContain('token=abc%2B123')
-    expect(serializedToken).toContain('Path=/app')
-    expect(serializedToken).toContain('Max-Age=3600')
-    expect(serializedToken).toContain('Domain=example.com')
-    expect(serializedToken).toContain('SameSite=strict')
-    expect(serializedToken).toContain('HttpOnly')
-    expect(serializedToken).not.toContain('Secure')
+  it('accumulates cookies across setAll calls', () => {
+    const handler = makeHandler(undefined)
 
-    const secondHandler = new CookieHandler(accessor, config, {
-      path: '/app',
-      httpOnly: false,
+    handler.setAll([{ name: 'first', value: '1' }])
+    handler.setAll([{ name: 'second', value: '2' }])
+
+    expect(handler.getPendingCookies()).toEqual([
+      'first=1; Path=/; HttpOnly; SameSite=Lax',
+      'second=2; Path=/; HttpOnly; SameSite=Lax',
+    ])
+  })
+
+  it('serializes an undefined runtime value as an empty value', () => {
+    const handler = makeHandler(undefined)
+    const cookie = { name: 'empty' } as ISsrCookieToSet
+
+    handler.setAll([cookie])
+
+    expect(handler.getPendingCookies()).toEqual(['empty=; Path=/; HttpOnly; SameSite=Lax'])
+  })
+  it('uses default options and lets cookie options override them', () => {
+    const handler = makeHandler(undefined, 'development', {
+      path: '/default',
+      httpOnly: true,
       secure: true,
+      sameSite: 'lax',
     })
-    secondHandler.setAll([
+
+    handler.setAll([
+      { name: 'defaults', value: 'ok' },
       {
-        name: 'flag',
-        value: 'off',
-        options: { sameSite: undefined, maxAge: undefined, domain: undefined },
+        name: 'overrides',
+        value: 'ok',
+        path: undefined,
+        httpOnly: false,
+        secure: false,
+        sameSite: undefined,
       },
     ])
 
-    const serializedFlag = (res.headers.append as ReturnType<typeof vi.fn>).mock.calls.at(
-      -1,
-    )?.[1] as string
-    expect(serializedFlag).toContain('flag=off')
-    expect(serializedFlag).toContain('Secure')
-    expect(serializedFlag).not.toContain('HttpOnly')
-    expect(serializedFlag).not.toContain('SameSite')
+    expect(handler.getPendingCookies()).toEqual([
+      'defaults=ok; Path=/default; Secure; HttpOnly; SameSite=Lax',
+      'overrides=ok',
+    ])
+  })
+
+  it('handles boolean SameSite values and defined false partitioned values', () => {
+    const handler = makeHandler(undefined)
+
+    handler.setAll([
+      { name: 'strict', value: '1', sameSite: true, partitioned: false },
+      { name: 'unset', value: '1', sameSite: false, partitioned: undefined },
+    ])
+
+    expect(handler.getPendingCookies()).toEqual([
+      'strict=1; Path=/; HttpOnly; SameSite=Strict; Partitioned',
+      'unset=1; Path=/; HttpOnly',
+    ])
   })
 })

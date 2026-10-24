@@ -1,6 +1,5 @@
+import type { ApplicationRegistry, ITransactionalDb } from '@xeno-js/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, ITransactionalDb } from '@/domain'
 
 import { ServiceContainer } from '../service-container'
 
@@ -126,6 +125,28 @@ describe('ServiceContainer', () => {
       expect((resolved as ServiceA).dep).toBeInstanceOf(Dep)
 
       await scope.dispose()
+    })
+  })
+
+  describe('isRegistered', () => {
+    it('returns false when a service is not registered', () => {
+      expect(container.isRegistered('dep')).toBe(false)
+    })
+
+    it('returns true when a service is registered without instantiating it', () => {
+      const factorySpy = vi.fn(() => new Dep())
+      container.addSingleton('dep', factorySpy)
+
+      expect(container.isRegistered('dep')).toBe(true)
+      expect(factorySpy).not.toHaveBeenCalled()
+    })
+
+    it('works for scoped and transient registrations as well', () => {
+      container.addScoped('scopedB', () => new ServiceB())
+      container.addTransient('transientB', () => new ServiceB())
+
+      expect(container.isRegistered('scopedB')).toBe(true)
+      expect(container.isRegistered('transientB')).toBe(true)
     })
   })
 

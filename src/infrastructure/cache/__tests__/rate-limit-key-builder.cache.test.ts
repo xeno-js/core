@@ -1,7 +1,6 @@
 ﻿import type { RequestContext } from '@xeno-js/shared'
+import type { ApplicationRegistry, IRequestContext } from '@xeno-js/shared'
 import { describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, IRequestContext } from '@/domain'
 
 import { RateLimitKeyBuilder } from '../rate-limit-key-builder.cache'
 

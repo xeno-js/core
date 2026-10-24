@@ -12,7 +12,7 @@ vi.mock('@xeno-js/shared', () => ({
   },
 }))
 
-import { EnvironmentConfigurationService } from '../configuration'
+import { EnvironmentConfigurationService } from '../node.configuration'
 
 describe('EnvironmentConfigurationService', () => {
   const trackedKeys = [

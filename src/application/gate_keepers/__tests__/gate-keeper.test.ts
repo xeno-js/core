@@ -33,7 +33,7 @@ describe('GateKeeper', () => {
 
   describe('authenticate — no token (early return GUEST)', () => {
     it('returns GUEST when token is undefined', async () => {
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
       const result = await gk.authenticate(undefined)
 
       expect(result.isOk()).toBe(true)
@@ -42,7 +42,7 @@ describe('GateKeeper', () => {
     })
 
     it('returns GUEST when token is null', async () => {
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
       const result = await gk.authenticate(null as unknown as string)
 
       expect(result.isOk()).toBe(true)
@@ -50,7 +50,7 @@ describe('GateKeeper', () => {
     })
 
     it('returns GUEST when token is empty string', async () => {
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
       const result = await gk.authenticate('')
 
       expect(result.isOk()).toBe(true)
@@ -68,7 +68,7 @@ describe('GateKeeper', () => {
         cause: new Error('bad token'),
       })
       authenticate.mockResolvedValue(Result.fail(error))
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
 
       const result = await gk.authenticate('bad-token')
 
@@ -84,7 +84,7 @@ describe('GateKeeper', () => {
         cause: new Error('user is not authenticated'),
       })
       authenticate.mockResolvedValue(Result.fail(error))
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
 
       const result = await gk.authenticate(undefined)
 
@@ -97,7 +97,7 @@ describe('GateKeeper', () => {
   describe('authenticate — authService succeeds', () => {
     it('returns GUEST when claims is null', async () => {
       authenticate.mockResolvedValue(Result.ok(null))
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
 
       const result = await gk.authenticate('valid-token')
 
@@ -107,7 +107,7 @@ describe('GateKeeper', () => {
 
     it('returns GUEST when claims is empty string', async () => {
       authenticate.mockResolvedValue(Result.ok(''))
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
 
       const result = await gk.authenticate('valid-token')
 
@@ -117,7 +117,7 @@ describe('GateKeeper', () => {
 
     it('maps claims and returns identity when claims are valid', async () => {
       authenticate.mockResolvedValue(Result.ok(VALID_CLAIMS))
-      const gk = new GateKeeper(authService, mapper)
+      const gk = new GateKeeper(() => authService, mapper)
 
       const result = await gk.authenticate('valid-token')
 

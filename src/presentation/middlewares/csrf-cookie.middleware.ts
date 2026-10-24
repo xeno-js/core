@@ -1,13 +1,12 @@
 import type {
-  ExtendedRequest,
   IContextAccessor,
   IMiddleware,
   RequestContext,
   ResponseDto,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { ICsrfTokenService, MiddlewareConfig } from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
-
-import type { ICsrfTokenService, MiddlewareConfig } from '@/domain'
 
 /**
  * @description The CsrfCookieMiddleware class implements the IMiddleware interface, providing a concrete implementation for handling CSRF token validation and cookie management. It checks the incoming request for a valid CSRF token and sets a CSRF cookie if necessary.
@@ -25,9 +24,8 @@ export class CsrfCookieMiddleware implements IMiddleware {
     private readonly _csrf: NonNullable<MiddlewareConfig['csrf']>,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    _req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const response = await next()
@@ -53,10 +51,10 @@ export class CsrfCookieMiddleware implements IMiddleware {
       `SameSite=${sameSite}; ` +
       `Max-Age=${maxAge}`
 
-    const existingCookies = response.headers['Set-Cookie']
+    const existingCookies = response.headers?.['Set-Cookie']
 
     response.headers = {
-      ...(response.headers ?? {}),
+      ...(response?.headers ?? {}),
       'Set-Cookie': [...(existingCookies ?? []), cookie],
     }
 

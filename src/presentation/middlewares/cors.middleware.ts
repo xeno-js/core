@@ -1,9 +1,10 @@
 import type {
-  ExtendedRequest,
   IContextAccessor,
   IMiddleware,
+  IRoutePolicyCheck,
   RequestContext,
   ResponseDto,
+  XenoRequest,
 } from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
 
@@ -18,25 +19,44 @@ import { Guards } from '@xeno-js/shared'
 export class CORSMiddleware implements IMiddleware {
   constructor(
     private readonly _requestContext: IContextAccessor<RequestContext>,
+    private readonly _getRouteMatcher: () => IRoutePolicyCheck,
     private readonly _withCredentials: 'true' | 'false' = 'false',
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    _req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const { network } = this._requestContext.getContext() ?? {}
     const origin = network?.origin
 
     const response = await next()
-    if (Guards.isDefined(origin))
+
+    const policy = this._getRouteMatcher().checkRoutePolicy(req.path, req.method)
+    const withCredentials = Guards.isDefined(policy.withCredentials)
+      ? policy.withCredentials
+        ? 'true'
+        : 'false'
+      : this._withCredentials
+
+    const allowOrigins = policy.allowOrigins
+
+    if (
+      Guards.isDefined(origin) ||
+      (Guards.isDefined(allowOrigins) && allowOrigins.includes('*'))
+    ) {
       response.headers = {
-        ...(response.headers ?? {}),
-        'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Credentials': this._withCredentials,
+        ...(response?.headers ?? {}),
+        'Access-Control-Allow-Origin':
+          Guards.isDefined(allowOrigins) &&
+          allowOrigins.includes('*') &&
+          withCredentials === 'false'
+            ? '*'
+            : origin!,
+        'Access-Control-Allow-Credentials': withCredentials,
         'Vary': 'Origin',
       }
+    }
     return response
   }
 }

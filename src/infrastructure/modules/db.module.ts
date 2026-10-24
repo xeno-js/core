@@ -1,10 +1,20 @@
 import type {
-  ApplicationRegistry,
   DbModuleOptions,
+  IDisposable,
   IModule,
   IServiceContainer,
+  IServiceScope,
   ITransactionalDb,
-} from '@/domain'
+  IUnitOfWork,
+  XenoRegistry,
+} from '@xeno-js/shared'
+import { Guards } from '@xeno-js/shared'
+import { TOKENS } from '@xeno-js/shared'
+
+import { UnitOfWork } from '../transaction'
+import { TransactionState } from '../transaction/transaction-state'
+
+interface OptionalUnitOfWork<TTx = unknown> extends IUnitOfWork<TTx>, IDisposable {}
 
 /**
  * @description The DbModule class is responsible for configuring the database module within the application. It implements the IModule interface, allowing it to be integrated into the application's dependency injection system. The configure method registers a singleton factory for creating an IDbClient instance using the provided configuration options. This design promotes modularity and allows for easy management of database connections and operations throughout the application.
@@ -15,31 +25,40 @@ import type {
  * @link https://github.com/xeno-js/xeno-js
  */
 export class DbModule<
-  TRegistry extends ApplicationRegistry<DbContext, DbTransaction>,
+  TRegistry extends XenoRegistry<DbContext, DbTransaction>,
   DbContext extends ITransactionalDb<DbTransaction>,
   DbTransaction = unknown,
-> implements IModule<TRegistry, DbModuleOptions<DbContext, DbTransaction>> {
+> implements IModule<
+  TRegistry,
+  DbModuleOptions<DbContext, DbTransaction> & {
+    uow?: (c: IServiceScope<TRegistry>) => OptionalUnitOfWork<DbContext>
+  }
+> {
   async configure(
     container: IServiceContainer<TRegistry>,
-    opts: DbModuleOptions<DbContext, DbTransaction>,
+    opts: DbModuleOptions<DbContext, DbTransaction> & {
+      uow?: (c: IServiceScope<TRegistry>) => OptionalUnitOfWork<DbContext>
+    },
   ): Promise<void> {
-    const { Guards, TOKENS } = await import('@xeno-js/shared')
-
     const db = opts.client
 
-    const { TransactionState } = await import('../transaction/transaction-state')
-    container.addScoped('TRANSACTION_STATE', () => {
+    container.addScoped(TOKENS.TRANSACTION_STATE, () => {
       return new TransactionState<DbTransaction>()
     })
 
-    const { UnitOfWork } = await import('../transaction/unit-of-work')
-    container.addScoped(TOKENS.UNIT_OF_WORK, (c) => {
-      const ttx = c.resolve('TRANSACTION_STATE')
-      return new UnitOfWork(db, ttx)
-    })
+    if (Guards.isDefined(opts.uow)) {
+      container.addScoped(TOKENS.UNIT_OF_WORK, (c) => {
+        return opts.uow!(c)
+      })
+    } else {
+      container.addScoped(TOKENS.UNIT_OF_WORK, (c) => {
+        const ttx = c.resolve(TOKENS.TRANSACTION_STATE)
+        return new UnitOfWork(db, ttx) as unknown as TRegistry['unitOfWork']
+      })
+    }
 
     container.addScoped(TOKENS.DB_CONTEXT, (c) => {
-      const ttx = c.resolve('TRANSACTION_STATE')
+      const ttx = c.resolve(TOKENS.TRANSACTION_STATE)
       return new Proxy(db, {
         get(_target, prop, receiver) {
           const activeState = ttx.state

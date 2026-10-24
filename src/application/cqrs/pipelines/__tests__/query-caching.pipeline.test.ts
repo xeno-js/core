@@ -15,6 +15,7 @@ const createCache = () => {
     remove: vi.fn(),
     has: vi.fn(),
     clear: vi.fn(),
+    removePattern: vi.fn(),
   }
   return { cache, getMock, setMock }
 }

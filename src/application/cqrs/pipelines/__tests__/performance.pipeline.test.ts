@@ -17,7 +17,7 @@ const createLogger = () => {
 }
 
 const registry = {
-  CREATE_USER_HANDLER: 600,
+  CREATE_USER_HANDLER: { thresholdMs: 600 },
 }
 
 const mockRequest: IRequest<{ id: string }> = {
@@ -148,7 +148,7 @@ describe('PerformancePipeline intent thresholds', () => {
   it('throws when an intent threshold is negative', () => {
     const { logger } = createLogger()
 
-    expect(() => new PerformancePipeline(logger, { TestIntent: -1 })).toThrow(
+    expect(() => new PerformancePipeline(logger, { TestIntent: { thresholdMs: -1 } })).toThrow(
       "Invalid thresholdMs value for intent 'TestIntent': -1. It must be a positive integer.",
     )
   })
@@ -156,7 +156,7 @@ describe('PerformancePipeline intent thresholds', () => {
   it('throws when an intent threshold is not an integer', () => {
     const { logger } = createLogger()
 
-    expect(() => new PerformancePipeline(logger, { TestIntent: 10.5 })).toThrow(
+    expect(() => new PerformancePipeline(logger, { TestIntent: { thresholdMs: 10.5 } })).toThrow(
       "Invalid thresholdMs value for intent 'TestIntent': 10.5. It must be a positive integer.",
     )
   })
@@ -164,7 +164,7 @@ describe('PerformancePipeline intent thresholds', () => {
   it('uses the default threshold when the request intent is not in the registry', async () => {
     const { logger, warnMock } = createLogger()
     vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(600)
-    const pipeline = new PerformancePipeline(logger, { OTHER_INTENT: 100 }, 500)
+    const pipeline = new PerformancePipeline(logger, { OTHER_INTENT: { thresholdMs: 100 } }, 500)
     const next = vi.fn().mockResolvedValue(Result.ok('value'))
 
     await pipeline.handle(mockRequest, next)
@@ -176,7 +176,7 @@ describe('PerformancePipeline intent thresholds', () => {
   it('logs a warning when execution exceeds the request intent threshold', async () => {
     const { logger, warnMock } = createLogger()
     vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(101)
-    const pipeline = new PerformancePipeline(logger, { TestIntent: 100 })
+    const pipeline = new PerformancePipeline(logger, { TestIntent: { thresholdMs: 100 } })
     const next = vi.fn().mockResolvedValue(Result.ok('value'))
 
     await pipeline.handle(mockRequest, next)
@@ -188,7 +188,7 @@ describe('PerformancePipeline intent thresholds', () => {
   it('does not log a warning when execution is below the request intent threshold', async () => {
     const { logger, warnMock } = createLogger()
     vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(99)
-    const pipeline = new PerformancePipeline(logger, { TestIntent: 100 })
+    const pipeline = new PerformancePipeline(logger, { TestIntent: { thresholdMs: 100 } })
     const next = vi.fn().mockResolvedValue(Result.ok('value'))
 
     await pipeline.handle(mockRequest, next)

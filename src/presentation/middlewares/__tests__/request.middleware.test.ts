@@ -1,9 +1,8 @@
-import type { ExtendedRequest, ILogger, IServiceExtractor, RequestContext } from '@xeno-js/shared'
+import type { ILogger, IServiceExtractor, RequestContext, XenoRequest } from '@xeno-js/shared'
 import type { Metadata } from '@xeno-js/shared'
+import type { ApplicationRegistry, IIPResolver, IRequestContext } from '@xeno-js/shared'
 import { ERROR_CODES } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, IIPResolver, IRequestContext } from '@/domain'
 
 import { RequestContextMiddleware } from '../request.middleware'
 
@@ -15,8 +14,7 @@ const transport = {
     path,
     method,
     headers,
-  } as unknown as ExtendedRequest,
-  res: {} as unknown as Response,
+  } as unknown as XenoRequest,
 }
 
 function makeExtractor(
@@ -76,7 +74,7 @@ describe('RequestContextMiddleware', () => {
     const { middleware, runAsync } = makeMiddleware(extractor)
     const next = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: {}, data: {} })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
     expect(response.ok).toBe(true)
     expect(runAsync).toHaveBeenCalledOnce()
@@ -98,13 +96,12 @@ describe('RequestContextMiddleware', () => {
       }),
     )
 
-    await middleware.execute(transport.req, transport.res, vi.fn().mockResolvedValue({}))
+    await middleware.execute(transport.req, vi.fn().mockResolvedValue({}))
 
     expect(getContext()?.network).toMatchObject({
       clientIp: '127.0.0.1',
       userAgent: 'Mozilla/5.0',
       path,
-      transport,
       requestId: 'ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj',
     })
     expect(getContext()?.tracing).toMatchObject({
@@ -122,7 +119,7 @@ describe('RequestContextMiddleware', () => {
   it('generates missing correlation, request and span identifiers', async () => {
     const { middleware, getContext } = makeMiddleware()
 
-    await middleware.execute(transport.req, transport.res, vi.fn().mockResolvedValue({}))
+    await middleware.execute(transport.req, vi.fn().mockResolvedValue({}))
 
     expect(getContext()?.network.requestId).toEqual(expect.any(String))
     expect(getContext()?.tracing.correlationId).toEqual(expect.any(String))
@@ -134,7 +131,7 @@ describe('RequestContextMiddleware', () => {
       makeExtractor({ formatIndicator: 'application/xml' }),
     )
 
-    await middleware.execute(transport.req, transport.res, vi.fn().mockResolvedValue({}))
+    await middleware.execute(transport.req, vi.fn().mockResolvedValue({}))
 
     expect(getContext()?.network.formatIndicator).toBe('application/xml')
   })
@@ -147,7 +144,7 @@ describe('RequestContextMiddleware', () => {
     } as unknown as IServiceExtractor<Request['headers'], Metadata>
     const { middleware, error } = makeMiddleware(extractor)
 
-    const response = await middleware.execute(transport.req, transport.res, vi.fn())
+    const response = await middleware.execute(transport.req, vi.fn())
 
     expect(response).toMatchObject({ status: 500, ok: false })
     expect((response.data as { error: { code: string; details: string } }).error).toMatchObject({
@@ -164,7 +161,6 @@ describe('RequestContextMiddleware', () => {
     const { middleware, error } = makeMiddleware()
     const response = await middleware.execute(
       transport.req,
-      transport.res,
       vi.fn().mockRejectedValue('string error'),
     )
 
@@ -176,14 +172,13 @@ describe('RequestContextMiddleware', () => {
     )
   })
 
-  it('uses the metadata format indicator for error content type', async () => {
+  it('not uses the metadata format indicator for error content type', async () => {
     const { middleware } = makeMiddleware(makeExtractor({ formatIndicator: 'application/xml' }))
     const response = await middleware.execute(
       transport.req,
-      transport.res,
       vi.fn().mockRejectedValue(new Error('failed')),
     )
 
-    expect(response.headers['Content-Type']).toEqual(['application/json'])
+    expect(response.headers['Content-Type']).toEqual(['application/xml'])
   })
 })

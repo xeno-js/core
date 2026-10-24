@@ -1,6 +1,5 @@
+import type { ApplicationRegistry } from '@xeno-js/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry } from '@/domain'
 
 import { ServiceContainer } from '../../container/service-container'
 import { TransactionState } from '../../transaction/transaction-state'
@@ -65,6 +64,7 @@ describe('UnitOfWork', () => {
       await expect(
         createUnitOfWork(state, transaction).runInTransaction(
           async () => 'result',
+          undefined,
           controller.signal,
         ),
       ).rejects.toThrow()

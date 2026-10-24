@@ -1,36 +1,50 @@
 import type {
+  AuthModuleOptions,
+  AuthPlugin,
   CacheConfig,
-  Dictionary,
+  CachePlugin,
+  ContextPlugin,
+  DbPlugin,
+  HttpConfig,
+  HttpPlugin,
+  HttpServerPlugin,
+  IAppBuilder,
   IConfigurationService,
-  Nullable,
-  SetupAction,
-} from '@xeno-js/shared'
-import { Guards, LOG_LEVEL, TOKENS } from '@xeno-js/shared'
-
-import type {
-  ApplicationRegistry,
-  AuthSsrConfig,
-  HttpAdapterConfig,
-  HttpCoreConfig,
   IModule,
   IServiceContainer,
   LoggerConfig,
+  LoggerPlugin,
   MiddlewareConfig,
-  PipelineConfig,
-} from '@/domain'
+  NativeRouteDefinition,
+  Nullable,
+  PipelinePlugin,
+  SetupAction,
+  XenoRegistry,
+} from '@xeno-js/shared'
+import { Guards, LOG_LEVEL, TOKENS } from '@xeno-js/shared'
 
 import { EnvironmentConfigurationService } from '../configuration'
+import { ViteConfigurationService } from '../configuration/vite.configuration'
 import { ServiceContainer } from '../container/service-container'
+import {
+  CacheModule,
+  ContextModule,
+  CqrsModule,
+  LoggerModule,
+  MiddlewareModule,
+  RouteModule,
+} from '../modules'
+import { withAuth, withCustomHttp } from '../plugin'
+import { XenoApplication } from '../xeno_application/xeno.application'
 
 /**
  * @description The AppBuilder class provides a fluent, .NET-style API for configuring and bootstrapping the application. It orchestrates the registration of various modules (CQRS, HTTP, Database, Logging, Auth) into the ServiceContainer.
-
-   * 
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
-   */
+ *
+ * @author Xeno
+ * @version 1.0.0
+ * @since 2025-09-30
+ * @link https://github.com/xeno-js/xeno-js
+ */
 interface QueuedModule {
   priority: number
   name: string
@@ -40,117 +54,67 @@ interface QueuedModule {
 /**
  * @description The AppBuilder class provides a fluent, .NET-style API for configuring and bootstrapping the application.
  * It orchestrates the registration of various modules (CQRS, HTTP, Database, Logging, Auth) into the ServiceContainer.
-
-   * 
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
-   */
-export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegistry> {
+ *
+ * @author Xeno
+ * @version 1.0.0
+ * @since 2025-09-30
+ * @link https://github.com/xeno-js/xeno-js
+ */
+export class XenoAppBuilder<
+  TRegistry extends XenoRegistry = XenoRegistry,
+  TApp extends XenoApplication<TRegistry> = XenoApplication<TRegistry>,
+> implements IAppBuilder<TRegistry, TApp> {
   protected _container: IServiceContainer<TRegistry> = new ServiceContainer<TRegistry>()
   protected readonly _configuration: IConfigurationService
-  protected _buildPromise: Nullable<Promise<IServiceContainer<TRegistry>>> = null
+  protected _buildPromise: Nullable<Promise<TApp>> = null
+  private _pipelinePlugins: PipelinePlugin<TRegistry>[] = []
+  private _appFactory: Nullable<(container: IServiceContainer<TRegistry>) => TApp> = null
 
   constructor(
     container?: IServiceContainer<TRegistry>,
-    configurationService?: IConfigurationService,
+    configurationService?: 'vite' | 'node' | IConfigurationService,
   ) {
     this._container = container ?? new ServiceContainer<TRegistry>()
 
-    this._configuration = configurationService ?? new EnvironmentConfigurationService()
+    this._configuration = this._getConfigurationService(configurationService)
     this._container.addSingleton(TOKENS.CONFIGURATION_SERVICE, () => this._configuration)
+  }
 
-    this.addContext()
+  private _getConfigurationService(service?: 'vite' | 'node' | IConfigurationService) {
+    if (!Guards.isDefined(service) || service === 'node')
+      return new EnvironmentConfigurationService()
+
+    if (service === 'vite') return new ViteConfigurationService()
+
+    return service
   }
 
   // --- Module Configurations ---
   protected readonly _modules: QueuedModule[] = []
 
   // --- Specific Configurations ---
-  private _adapterConfig: HttpAdapterConfig = {
-    native: true,
-    vercel: false,
-    fastify: false,
-    custom: undefined,
-  }
-  private _pipelineConfig: PipelineConfig<TRegistry, Dictionary> = {
-    performance: { thresholdMs: 500, intentThresholdMs: undefined },
-    authorization: {
-      policies: undefined,
-      customAuthorizationStrategy: undefined,
-    },
-    validation: {
-      zod: undefined,
-      customValidationStrategy: undefined,
-    },
-    commandBus: {
-      idempotency: undefined,
-      concurrency: undefined,
-    },
-    queryBus: { isEnabled: false },
-  }
-  private _config: CacheConfig = { inMemory: true, redis: undefined }
   private _middlewareConfig: MiddlewareConfig = {
     isSSR: false,
-    rateLimite: {
-      maxRequests: 3,
-      windowSeconds: 100,
+    cors: {
+      enabled: true,
+      enablePreflight: true,
+      withCredentials: true,
+      allowOrigins: [],
+      allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    },
+    rateLimit: {
+      enabled: true,
+      maxRequests: 100,
+      windowSeconds: 60,
     },
     csrf: undefined,
-    optionsMiddleware: false,
-    routeRegistry: undefined,
     trustedIpHeader: undefined,
     trustedProxies: [],
-    allowOrigins: [],
-    allowHeaders: [],
-    cors: true,
-    withCredentials: true,
     authCookieName: 'sb-access-token',
   }
-  private readonly _authConfig: AuthSsrConfig<Dictionary> = {
-    url: '',
-    key: '',
-    opts: undefined,
-    redirectTo: '',
-    storageOpts: { type: 'memory', cookieOpts: undefined, storage: undefined },
-    ssrOpts: undefined,
-    customAuth: undefined,
-    cookieOpts: {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-    },
-  }
-  private readonly _httpConfig: HttpCoreConfig<TRegistry> = {
-    dataSourceToken: undefined,
-    http: {
-      token: undefined,
-      client: {
-        defaultHeaders: undefined,
-        baseURL: undefined,
-        timeoutMs: undefined,
-        keepAlive: undefined,
-        maxSockets: undefined,
-        maxRedirects: undefined,
-        decompress: undefined,
-        withCredentials: undefined,
-        proxy: false,
-      },
-    },
-    resilience: { retry: {}, circuitBreaker: {}, bulkhead: {} },
-  } as unknown as HttpCoreConfig<TRegistry>
-  private readonly _loggerConfig = {
-    level: LOG_LEVEL.DEBUG,
-    console: true,
-    sentry: { config: undefined },
-    pino: { config: undefined },
-    customLoggers: undefined,
-  } as unknown as LoggerConfig<ApplicationRegistry<unknown>>
+  private _routes: NativeRouteDefinition<TRegistry>[] = []
 
   // --- Module Queuing Flags ---
-  private _isContextModuleQueued = false
   private _isMiddlewareModuleQueued = false
   private _isPipelineModuleQueued = false
   private _isLoggerModuleQueued = false
@@ -158,61 +122,120 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
   private _isDbContextModuleQueued = false
   private _isConcurrencyServiceQueued = false
   private _isCacheModuleQueued = false
-  private _isAdapterModuleQueued = false
+  private _isHttpCoreQueued = false
+  private _isHttpServerQueued = false
+  private _isRouteModuleQueued = false
+  private _isContextModuleQueued = false
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Application Modules Configuration
   // ─────────────────────────────────────────────────────────────────────────────
 
-  protected addAdapter(setupAction: SetupAction<HttpAdapterConfig, IConfigurationService>): this {
-    if (this._isAdapterModuleQueued) return this
-    setupAction(this._adapterConfig, this._configuration)
-    this._isAdapterModuleQueued = true
+  protected setApplicationFactory(
+    factory: (container: IServiceContainer<TRegistry>) => TApp,
+  ): this {
+    this._appFactory = factory
+    return this
+  }
 
+  /**
+   * @description Add http server plugin to the application.
+   * @param plugin - The http server plugin to be added.
+   * @returns {this} The current instance of the class.
+   */
+  public addHttpServer(plugin: HttpServerPlugin<TRegistry>): this {
+    if (this._isHttpServerQueued) return this
+    plugin(this, this._configuration)
+    this._isHttpServerQueued = true
+    return this
+  }
+
+  /**
+   * @description Add a new route to the application.
+   * @param routes - The routes to be added.
+   * @returns {this} The current instance of the class.
+   */
+  public addRoutes(routes: NativeRouteDefinition<TRegistry>[]): this {
+    this._routes.push(...routes)
+
+    if (this._isRouteModuleQueued) return this
     this._modules.push({
-      priority: 3,
-      name: 'AdapterModule',
+      priority: 5,
+      name: 'RouteModule',
       action: async () => {
-        const { HttpAdapterModule } = await import('../modules/http-adapter.module')
-        await new HttpAdapterModule().configure(this._container, this._adapterConfig)
+        const routeModule = new RouteModule<TRegistry>()
+        await routeModule.configure(this._container, this._routes)
       },
     })
+    this._isRouteModuleQueued = true
     return this
   }
 
   /**
    * @description Enables the use of middlewares in the application. Middlewares can be used for cross-cutting concerns such as logging, authentication, and request/response manipulation.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addMiddlewares(setupAction: SetupAction<MiddlewareConfig, IConfigurationService>): this {
-    setupAction(this._middlewareConfig, this._configuration)
-    this._queueMiddlewareModule()
+  public addMiddlewares(setupAction?: SetupAction<MiddlewareConfig, IConfigurationService>): this {
+    if (this._isMiddlewareModuleQueued) return this
+    if (Guards.isDefined(setupAction)) setupAction(this._middlewareConfig, this._configuration)
+
+    this._modules.push({
+      priority: 4,
+      name: 'MiddlewareModule',
+      action: async () => {
+        const middlewareModule = new MiddlewareModule<TRegistry>()
+        await middlewareModule.configure(this._container, {
+          ...this._middlewareConfig,
+          routes: this._routes,
+        })
+      },
+    })
+
+    this._isMiddlewareModuleQueued = true
     return this
   }
 
   /**
    * @description Enables the use of context in the application. Context can be used to store and manage request-specific data, such as user information, correlation IDs, and other metadata that needs to be accessible throughout the request lifecycle.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addContext(): this {
-    this._queueContextModule()
+  public addContext(plugin?: ContextPlugin<TRegistry>): this {
+    if (this._isContextModuleQueued) return this
+
+    if (Guards.isDefined(plugin)) plugin(this, this._configuration)
+    else
+      this._modules.push({
+        priority: 0,
+        name: 'ContextModule',
+        action: async () => {
+          const contextModule = new ContextModule<TRegistry>()
+          await contextModule.configure(this._container)
+        },
+      })
+
+    this._isContextModuleQueued = true
     return this
   }
 
   /**
-   * @description Configures the logger for the application. This method allows you to set up logging options such as log level, console logging, and integration with external logging services like Sentry or Pino.
+   * @description Configures the logger for the application. This method allows you to set up logging options such as log level, console logging, and integration with custom logging services.
+   * @param plugin A LoggerPlugin instance or an array of LoggerPlugin instances to configure the logger.
+   * @returns The current instance of AppBuilder for method chaining.
+   */
+  public addLogger(plugin?: LoggerPlugin<TRegistry> | LoggerPlugin<TRegistry>[]): this
+
+  /**
+   * @description Configures the logger for the application. This method allows you to set up logging options such as log level, console logging, and integration with custom logging services.
    * @param setupAction A callback function that receives a LoggerConfig object to configure the logger settings.
    * @returns The current instance of AppBuilder for method chaining.
    *
@@ -221,96 +244,187 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
+  public addLogger(setupAction?: SetupAction<LoggerConfig<TRegistry>, IConfigurationService>): this
+
   public addLogger(
-    setupAction?: SetupAction<LoggerConfig<TRegistry>, IConfigurationService>,
+    pluginOrSetup?:
+      | LoggerPlugin<TRegistry>
+      | LoggerPlugin<TRegistry>[]
+      | SetupAction<LoggerConfig<TRegistry>, IConfigurationService>,
   ): this {
-    if (Guards.isDefined(setupAction)) setupAction(this._loggerConfig, this._configuration)
-
     if (this._isLoggerModuleQueued) return this
-    this._isLoggerModuleQueued = true
 
-    this._modules.push({
-      priority: 1,
-      name: 'LoggerModule',
-      action: async () => {
-        const { LoggerUtils } = await import('../modules/utils/logger.utils')
-        await LoggerUtils.addLogger(this._container, this._loggerConfig)
-      },
-    })
+    if (!Guards.isDefined(pluginOrSetup)) {
+      this._modules.push({
+        priority: 1,
+        name: 'LoggerModule',
+        action: async () => {
+          const module = new LoggerModule<TRegistry>()
+          await module.configure(this._container, {
+            level: LOG_LEVEL.DEBUG,
+            console: true,
+            builder: this,
+            config: this._configuration,
+          })
+        },
+      })
+    } else if (Guards.isArray(pluginOrSetup)) {
+      this._modules.push({
+        priority: 1,
+        name: 'LoggerModule',
+        action: async () => {
+          const module = new LoggerModule<TRegistry>()
+          await module.configure(this._container, {
+            console: false,
+            builder: this,
+            config: this._configuration,
+            plugins: pluginOrSetup,
+          })
+        },
+      })
+    } else if ((pluginOrSetup as LoggerPlugin<TRegistry>).__kind === 'logger') {
+      this._modules.push({
+        priority: 1,
+        name: 'LoggerModule',
+        action: async () => {
+          const module = new LoggerModule<TRegistry>()
+          await module.configure(this._container, {
+            console: false,
+            builder: this,
+            config: this._configuration,
+            plugins: [pluginOrSetup as LoggerPlugin<TRegistry>],
+          })
+        },
+      })
+    } else {
+      const loggerConfig = {
+        console: true,
+        level: LOG_LEVEL.DEBUG,
+        customLoggers: [],
+      }
+      const setupAction = pluginOrSetup as SetupAction<
+        LoggerConfig<TRegistry>,
+        IConfigurationService
+      >
+      setupAction(loggerConfig, this._configuration)
+      this._modules.push({
+        priority: 1,
+        name: 'LoggerModule',
+        action: async () => {
+          const module = new LoggerModule<TRegistry>()
+          await module.configure(this._container, {
+            ...loggerConfig,
+            builder: this,
+            config: this._configuration,
+          })
+        },
+      })
+    }
+
+    this._isLoggerModuleQueued = true
     return this
   }
 
   /**
    * @description Configures the caching settings for the application. This method allows you to set up caching options such as Redis configuration or in-memory caching.
-   * @param setupAction A callback function that receives a CacheConfig object to configure the caching settings.
+   * @param plugin Optional plugin function to configure the caching module.
+   * @defaults The default caching module is the in-memory caching module.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addCache(setupAction?: SetupAction<CacheConfig, IConfigurationService>): this {
-    if (Guards.isDefined(setupAction)) setupAction(this._config, this._configuration)
-
+  public addCache(plugin?: CachePlugin<TRegistry>): this
+  public addCache(setupAction?: SetupAction<CacheConfig, IConfigurationService>): this
+  public addCache(
+    pluginOrSetup?: CachePlugin<TRegistry> | SetupAction<CacheConfig, IConfigurationService>,
+  ): this {
     if (this._isCacheModuleQueued) return this
-    this._isCacheModuleQueued = true
 
-    this._modules.push({
-      priority: 2,
-      name: 'CacheModule',
-      action: async () => {
-        const { CacheUtils } = await import('../modules/utils/cache.utils')
-        await CacheUtils.addCache(this._container, this._config)
-      },
-    })
+    if (!Guards.isDefined(pluginOrSetup))
+      this._modules.push({
+        priority: 2,
+        name: 'CacheModule',
+        action: async () => {
+          await new CacheModule<TRegistry>().configure(this._container, { inMemory: true })
+        },
+      })
+    else if ((pluginOrSetup as CachePlugin<TRegistry>).__kind === 'cache')
+      (pluginOrSetup as CachePlugin<TRegistry>)(this, this._configuration)
+    else {
+      const cacheConfig: CacheConfig = {
+        inMemory: true,
+      }
+      const setupAction = pluginOrSetup as SetupAction<CacheConfig, IConfigurationService>
+
+      setupAction(cacheConfig, this._configuration)
+
+      this._modules.push({
+        priority: 2,
+        name: 'CacheModule',
+        action: async () => {
+          await new CacheModule<TRegistry>().configure(this._container, cacheConfig)
+        },
+      })
+    }
+
+    this._isCacheModuleQueued = true
     return this
   }
 
   /**
    * @description Configures the authentication client for the application. This method allows you to set up authentication options such as the authentication server URL, API key, and additional options.
-   * @param setupAction A callback function that receives an AuthClientConfig object to configure the authentication client settings.
+   * @param plugin A plugin function that configures the authentication client.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   */
+  public addAuth(plugin: AuthPlugin<TRegistry>): this
+  /**
+   * @description Configures the authentication client for the application. This method allows you to set up authentication options such as the authentication server URL, API key, and additional options.
+   * @param setupAction A function that configures the authentication client.
+   * @returns The current instance of AppBuilder for method chaining.
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addAuth(setupAction: SetupAction<AuthSsrConfig, IConfigurationService>): this {
-    if (this._isAuthModuleQueued) return this
-    this._isAuthModuleQueued = true
+  public addAuth(
+    setupAction: SetupAction<AuthModuleOptions<TRegistry>, IConfigurationService>,
+  ): this
 
-    setupAction(this._authConfig, this._configuration)
-    this._modules.push({
-      priority: 3,
-      name: 'AuthModule',
-      action: async () => {
-        const { AuthUtils } = await import('../modules/utils/auth.utils')
-        await AuthUtils.addAuthN(this._container, this._authConfig)
-      },
-    })
+  public addAuth(
+    pluginOrSetup:
+      AuthPlugin<TRegistry> | SetupAction<AuthModuleOptions<TRegistry>, IConfigurationService>,
+  ): this {
+    if (this._isAuthModuleQueued) return this
+    if ((pluginOrSetup as AuthPlugin<TRegistry>).__kind === 'auth')
+      (pluginOrSetup as AuthPlugin<TRegistry>)(this, this._configuration)
+    else {
+      withAuth<TRegistry>(
+        pluginOrSetup as SetupAction<AuthModuleOptions<TRegistry>, IConfigurationService>,
+      )(this, this._configuration)
+    }
+    this._isAuthModuleQueued = true
     return this
   }
 
   /**
    * @description Configures the database settings for the application. This method allows you to set up database options such as enabling/disabling the database, connection string, and table definitions.
-   * @param setupAction A callback function that receives a DbConfig object to configure the database settings.
+   * @param plugin A callback function that receives a DbConfig object to configure the database settings.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addDb(plugin: (builder: this, config: IConfigurationService) => this): this {
+  public addDb(plugin: DbPlugin<TRegistry>): this {
     if (this._isDbContextModuleQueued) return this
-    const result = plugin(this, this._configuration)
+    plugin(this, this._configuration)
     this._isDbContextModuleQueued = true
-    return result
+    return this
   }
 
   /**
@@ -331,7 +445,10 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
       name: 'ConcurrencyServiceModule',
       action: async () => {
         const { PLimitConcurrencyService } = await import('../services/concurrency')
-        this._container.addSingleton('CONCURRENCY_SERVICE', () => new PLimitConcurrencyService())
+        this._container.addSingleton(
+          TOKENS.CONCURRENCY_SERVICE,
+          () => new PLimitConcurrencyService(),
+        )
       },
     })
     return this
@@ -353,12 +470,25 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
    * @link https://github.com/xeno-js/xeno-js 
    */
   public addPipeline(
-    setupAction?: SetupAction<PipelineConfig<TRegistry>, IConfigurationService>,
+    pluginOrPlugins?: PipelinePlugin<TRegistry> | PipelinePlugin<TRegistry>[],
   ): this {
-    if (Guards.isDefined(setupAction)) {
-      setupAction(this._pipelineConfig, this._configuration)
-    }
-    this._queuePipelineModule()
+    if (this._isPipelineModuleQueued) return this
+
+    if (Guards.isDefined(pluginOrPlugins))
+      this._pipelinePlugins = Guards.isArray(pluginOrPlugins) ? pluginOrPlugins : [pluginOrPlugins]
+
+    this._modules.push({
+      priority: 5,
+      name: 'CqrsModule',
+      action: async () => {
+        await new CqrsModule<TRegistry>().configure(this._container, {
+          plugins: this._pipelinePlugins,
+          builder: this,
+        })
+      },
+    })
+
+    this._isPipelineModuleQueued = true
     return this
   }
 
@@ -367,29 +497,40 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * @description Configures the HTTP core settings for the application. This method allows you to set up HTTP core options such as data source token, HTTP client configuration, and resilience settings.
-   * @param setupAction A callback function that receives an HttpCoreConfig object to configure the HTTP core settings.
+   * @description Configures the HTTP core settings for the application. This method allows you to set up HTTP core options such as data source token and HTTP client configuration.
+   * @param plugin A HttpPlugin object that contains the HTTP core configuration.
    * @returns The current instance of AppBuilder for method chaining.
-  
-   * 
+   */
+  public addHttpClient(plugin: HttpPlugin<TRegistry>): this
+
+  /**
+   * @description Configures the HTTP core settings for the application. This method allows you to set up HTTP core options such as data source token, HTTP client configuration, and resilience settings.
+   * @param setupAction A callback function that receives an SetupAction<HttpConfig, IConfigurationService> object to configure the HTTP core settings.
+   * @returns The current instance of AppBuilder for method chaining.
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
-  public addHttpCore(
-    setupAction: SetupAction<HttpCoreConfig<TRegistry>, IConfigurationService>,
+  public addHttpClient(setupAction: SetupAction<HttpConfig, IConfigurationService>): this
+
+  public addHttpClient(
+    pluginOrSetup: HttpPlugin<TRegistry> | SetupAction<HttpConfig, IConfigurationService>,
   ): this {
-    setupAction(this._httpConfig, this._configuration)
-    this._modules.push({
-      priority: 30,
-      name: 'HttpCoreModule',
-      action: async () => {
-        const { HttpCoreModule } = await import('../modules/http-core.module')
-        const coreModule = new HttpCoreModule<TRegistry>()
-        await coreModule.configure(this._container, this._httpConfig)
-      },
-    })
+    if (this._isHttpCoreQueued) return this
+    if ((pluginOrSetup as HttpPlugin<TRegistry>).__kind === 'http')
+      (pluginOrSetup as HttpPlugin<TRegistry>)(this, this._configuration)
+    else {
+      const httpConfig: HttpConfig = {
+        clients: [],
+      }
+      const setupAction = pluginOrSetup as SetupAction<HttpConfig, IConfigurationService>
+      setupAction(httpConfig, this._configuration)
+      withCustomHttp<TRegistry>(httpConfig)(this, this._configuration)
+    }
+
+    this._isHttpCoreQueued = true
     return this
   }
 
@@ -409,9 +550,10 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
    */
   public addServices(
     setupAction: SetupAction<IServiceContainer<TRegistry>, IConfigurationService>,
+    priority = 99,
   ): this {
     this._modules.push({
-      priority: 99,
+      priority,
       name: 'ClientServicesModule',
       action: async () => {
         setupAction(this._container, this._configuration)
@@ -432,9 +574,14 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
-  public addModule<T>(name: string, factory: () => Promise<IModule<TRegistry, T>>, opts?: T): this {
+  public addModule<T>(
+    name: string,
+    factory: () => Promise<IModule<TRegistry, T>>,
+    opts?: T,
+    priority = 50,
+  ): this {
     this._modules.push({
-      priority: 50,
+      priority,
       name,
       action: async () => {
         const module = await factory()
@@ -471,7 +618,7 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
-  public build(): Promise<IServiceContainer<TRegistry>> {
+  public build(): Promise<TApp> {
     if (Guards.isDefined(this._buildPromise)) {
       return this._buildPromise
     }
@@ -503,9 +650,17 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
   /**
    * @description Executes the build process by initializing all registered modules in the container.
    */
-  private async _executeBuild(): Promise<IServiceContainer<TRegistry>> {
+  private async _executeBuild(): Promise<TApp> {
     console.info('⚙️ Bootstrapping application modules...')
-    const sortedModules = this._modules.sort((a, b) => a.priority - b.priority)
+    if (!this._isContextModuleQueued) {
+      if (this._configuration instanceof ViteConfigurationService)
+        throw new Error(
+          'Cannot add node context module to the application builder when using ViteConfigurationService. \nPlease use addContext passing a context plugin such as withPiniaContext() from @xeno-js/vue',
+        )
+      else this.addContext()
+    }
+
+    const sortedModules = [...this._modules].sort((a, b) => a.priority - b.priority)
     for (const queued of sortedModules) {
       try {
         await queued.action()
@@ -525,99 +680,8 @@ export class AppBuilder<TRegistry extends ApplicationRegistry = ApplicationRegis
       }
     }
     console.info('✅ Application modules bootstrapped successfully.')
-    return this._container
-  }
+    if (Guards.isDefined(this._appFactory)) return this._appFactory(this._container)
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Private Helper Methods
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * @description Queues the configuration of the CQRS pipeline module if it has not already been queued. This method ensures that the pipeline module is only added once, even if multiple pipeline-related configurations are made.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private _queuePipelineModule(): void {
-    if (this._isPipelineModuleQueued) return
-    this._isPipelineModuleQueued = true
-
-    this._queueContextModule()
-
-    if (!this._isLoggerModuleQueued) this.addLogger()
-    if (!this._isCacheModuleQueued) this.addCache()
-
-    this._modules.push({
-      priority: 5,
-      name: 'CqrsModule',
-      action: async () => {
-        const { CqrsModule } = await import('../modules/cqrs.module')
-        const pipelineModule = new CqrsModule<TRegistry>()
-        await pipelineModule.configure(this._container, this._pipelineConfig)
-      },
-    })
-  }
-
-  /**
-   * @description Queues the configuration of the middleware module if it has not already been queued. This method ensures that the middleware module is only added once, even if multiple middleware-related configurations are made.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private _queueMiddlewareModule(): void {
-    if (this._isMiddlewareModuleQueued) return
-    this._isMiddlewareModuleQueued = true
-
-    this._queueContextModule()
-
-    if (!this._isLoggerModuleQueued) this.addLogger()
-    if (!this._isCacheModuleQueued) this.addCache()
-
-    this._modules.push({
-      priority: 4,
-      name: 'MiddlewareModule',
-      action: async () => {
-        const { MiddlewareModule } = await import('../modules/middleware.module')
-        const middlewareModule = new MiddlewareModule()
-        if (!this._isAdapterModuleQueued) {
-          const { HttpAdapterModule } = await import('../modules/http-adapter.module')
-          await new HttpAdapterModule().configure(this._container, this._adapterConfig)
-        }
-
-        await middlewareModule.configure(this._container, {
-          ...this._middlewareConfig,
-          isAuth: this._isAuthModuleQueued,
-          customTokenExtractor: this._authConfig.customAuth?.authHeaderExtractor,
-        })
-      },
-    })
-  }
-
-  /**
-   * @description Queues the configuration of the context module if it has not already been queued. This method ensures that the context module is only added once, even if multiple context-related configurations are made.
-  
-   * 
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
-   */
-  private _queueContextModule(): void {
-    if (this._isContextModuleQueued) return
-    this._isContextModuleQueued = true
-
-    this._modules.push({
-      priority: 0,
-      name: 'ContextModule',
-      action: async () => {
-        const { ContextModule } = await import('../modules/context.module')
-        const contextModule = new ContextModule<TRegistry>()
-        await contextModule.configure(this._container)
-      },
-    })
+    return new XenoApplication<TRegistry>(this._container) as TApp
   }
 }

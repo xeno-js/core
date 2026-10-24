@@ -1,10 +1,11 @@
 import type {
-  ExtendedRequest,
   HttpMethod,
   IMiddleware,
   RequestContext,
   ResponseDto,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { IAllowMethod, IRequestContext, XenoRegistry } from '@xeno-js/shared'
 import {
   ERROR_CODE_MESSAGES,
   ERROR_CODES,
@@ -12,8 +13,6 @@ import {
   HttpHelper,
   STATUS_CODES,
 } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IAllowMethod, IRequestContext } from '@/domain'
 
 /**
  * @description Middleware that checks if the requested method is allowed for the given path. If the method is not allowed, it returns a 405
@@ -23,7 +22,7 @@ import type { ApplicationRegistry, IAllowMethod, IRequestContext } from '@/domai
  * @since 2025-09-30
  * @link https://github.com/xeno-js/xeno-js
  * @param {IAllowMethod} _allowMethod - The allow method service to check if the method is allowed.
- * @param {IRequestContext<RequestContext, ApplicationRegistry<unknown>>} _requestContext - The request context to get the request context.
+ * @param {IRequestContext<RequestContext, XenoRegistry>} _requestContext - The request context to get the request context.
  * @returns {IMiddleware} - The middleware function that checks if the method is allowed.
  * @throws {Error} - If the method is not allowed, it throws an error with a 405 status code and an error message.
  * @see {@link IAllowMethod} - The allow method service.
@@ -33,13 +32,12 @@ import type { ApplicationRegistry, IAllowMethod, IRequestContext } from '@/domai
  */
 export class MethodCheckMiddleware implements IMiddleware {
   constructor(
-    private readonly _requestContext: IRequestContext<RequestContext, ApplicationRegistry<unknown>>,
+    private readonly _requestContext: IRequestContext<RequestContext, XenoRegistry>,
     private readonly _allowMethod: IAllowMethod,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const isAllowed = this._allowMethod.check(req.path, req.method as HttpMethod)

@@ -40,7 +40,7 @@ export abstract class BaseController<TRequest, TResponse> implements IController
     private readonly _mediator: IMediator,
   ) {}
 
-  abstract handle(request: TRequest, signal: AbortSignal): Promise<ResponseDto<TResponse>>
+  abstract handle(request: TRequest, signal: Optional<AbortSignal>): Promise<ResponseDto<TResponse>>
 
   /**
    * Helper to return a successful 200/201 response.
@@ -122,7 +122,7 @@ export abstract class BaseController<TRequest, TResponse> implements IController
    */
   protected _query(
     request: IQuery<TResponse>,
-    signal: AbortSignal,
+    signal: Optional<AbortSignal>,
   ): Promise<ResultType<TResponse>> {
     return this._mediator.query(request, signal)
   }
@@ -140,7 +140,7 @@ export abstract class BaseController<TRequest, TResponse> implements IController
    */
   protected _send(
     request: ICommand<TResponse>,
-    signal: AbortSignal,
+    signal: Optional<AbortSignal>,
   ): Promise<ResultType<TResponse>> {
     return this._mediator.send(request, signal)
   }

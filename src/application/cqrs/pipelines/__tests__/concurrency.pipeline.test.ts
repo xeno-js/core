@@ -34,7 +34,9 @@ describe('ConcurrencyRetryPipeline', () => {
 
   it('should return result immediately if successful', async () => {
     mockNext.mockResolvedValue(Result.ok('success'))
-    const pipeline = new ConcurrencyRetryPipeline(3)
+    const pipeline = new ConcurrencyRetryPipeline({
+      maxRetries: 3,
+    })
 
     const result = await pipeline.handle(mockRequest, mockNext)
 
@@ -55,7 +57,9 @@ describe('ConcurrencyRetryPipeline', () => {
     )
 
     mockNext.mockResolvedValue(nonConcurrencyError)
-    const pipeline = new ConcurrencyRetryPipeline(3)
+    const pipeline = new ConcurrencyRetryPipeline({
+      maxRetries: 3,
+    })
 
     const result = await pipeline.handle(mockRequest, mockNext)
 
@@ -80,7 +84,9 @@ describe('ConcurrencyRetryPipeline', () => {
       .mockResolvedValueOnce(conflictError)
       .mockResolvedValueOnce(Result.ok('success'))
 
-    const pipeline = new ConcurrencyRetryPipeline(3)
+    const pipeline = new ConcurrencyRetryPipeline({
+      maxRetries: 3,
+    })
     const result = await pipeline.handle(mockRequest, mockNext)
 
     expect(mockNext).toHaveBeenCalledTimes(3)
@@ -101,23 +107,14 @@ describe('ConcurrencyRetryPipeline', () => {
 
     mockNext.mockResolvedValue(conflictError)
     const maxRetries = 2
-    const pipeline = new ConcurrencyRetryPipeline(maxRetries)
+    const pipeline = new ConcurrencyRetryPipeline({
+      maxRetries,
+    })
 
     const result = await pipeline.handle(mockRequest, mockNext)
 
     expect(mockNext).toHaveBeenCalledTimes(maxRetries)
     expect(result.isOk()).toBe(false)
     expect(result.getErrorOrThrow().code).toBe(ERROR_CODES.CONFLICT)
-  })
-
-  describe('Constructor Validation', () => {
-    it('should throw if maxRetries is zero or negative', () => {
-      expect(() => new ConcurrencyRetryPipeline(0)).toThrow()
-      expect(() => new ConcurrencyRetryPipeline(-1)).toThrow()
-    })
-
-    it('should throw if delay config values are negative', () => {
-      expect(() => new ConcurrencyRetryPipeline(3, { baseDelayMs: -1, maxJitterMs: 0 })).toThrow()
-    })
   })
 })

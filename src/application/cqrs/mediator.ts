@@ -6,12 +6,13 @@ import type {
   IPipelineBehavior,
   IQuery,
   IRequest,
+  Optional,
   ResultType,
 } from '@xeno-js/shared'
+import type { IServiceScopeAccessor, XenoRegistry } from '@xeno-js/shared'
 import { AppError, Result } from '@xeno-js/shared'
-import { ERROR_CODE_MESSAGES, ERROR_CODES, Guards, STATUS_CODES, TOKENS } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IServiceScopeAccessor } from '@/domain'
+import { ERROR_CODE_MESSAGES, ERROR_CODES, Guards, STATUS_CODES } from '@xeno-js/shared'
+import { TOKENS } from '@xeno-js/shared'
 
 /**
  * @description Mediator implementation for CQRS pattern. It is responsible for sending commands and executing queries by delegating them to the appropriate handlers, while also applying any registered pipeline behaviors (middlewares).
@@ -22,9 +23,7 @@ import type { ApplicationRegistry, IServiceScopeAccessor } from '@/domain'
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js 
    */
-export class Mediator<
-  TRegistry extends ApplicationRegistry<unknown> = ApplicationRegistry<unknown>,
-> implements IMediator {
+export class Mediator<TRegistry extends XenoRegistry = XenoRegistry> implements IMediator {
   /**
    * @param _factoryScope - An instance of IServiceScopeAccessor used to access the current service scope, which is necessary for resolving handlers and pipeline behaviors for processing requests.
   
@@ -47,7 +46,7 @@ export class Mediator<
    */
   async send<TResponse>(
     request: ICommand<TResponse>,
-    signal: AbortSignal,
+    signal: Optional<AbortSignal>,
   ): Promise<ResultType<TResponse>> {
     return this.process<TResponse>(request, TOKENS.COMMAND_PIPELINES_BEHAVIOR, signal)
   }
@@ -62,7 +61,7 @@ export class Mediator<
    */
   async query<TResponse>(
     request: IQuery<TResponse>,
-    signal: AbortSignal,
+    signal: Optional<AbortSignal>,
   ): Promise<ResultType<TResponse>> {
     return this.process<TResponse>(request, TOKENS.QUERY_PIPELINES_BEHAVIOR, signal)
   }
@@ -82,8 +81,8 @@ export class Mediator<
    */
   private async process<TResponse>(
     request: IRequest<TResponse>,
-    pipelineToken: keyof ApplicationRegistry<unknown>,
-    signal: AbortSignal,
+    pipelineToken: keyof XenoRegistry,
+    signal: Optional<AbortSignal>,
   ): Promise<ResultType<TResponse>> {
     if (Guards.isDefined(signal) && signal.aborted)
       return Result.fail(AppError.aborted(request.intent))

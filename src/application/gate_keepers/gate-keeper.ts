@@ -19,25 +19,25 @@ import { Guards, GUEST } from '@xeno-js/shared'
  */
 export class GateKeeper implements IGateKeeper {
   constructor(
-    private readonly _authService: IBaseAuthService,
+    private readonly _authServiceResolver: () => IBaseAuthService,
     private readonly _mapper: IBaseMapper<AuthClaims, Identity>,
   ) {}
 
   public async authenticate(token: Optional<string>): Promise<ResultType<Identity>> {
     const guest = GUEST as unknown as Identity
-
+    const authService = this._authServiceResolver()
     if (!Guards.isNullOrEmpty(token)) {
-      const authResult = await this._authService.authenticate(token)
+      const authResult = await authService.authenticate(token)
 
       if (!authResult.isOk()) return Result.fail(authResult.getErrorOrThrow())
 
       const claims = authResult.getValueOrThrow()
-      if (Guards.isDefined(claims)) return Result.ok(this._mapper.map(claims))
+      if (!Guards.isNullOrEmpty(claims)) return Result.ok(this._mapper.map(claims))
 
       return Result.ok(guest)
     }
 
-    const userResult = await this._authService.getUser()
+    const userResult = await authService.getUser()
 
     if (userResult.isOk()) {
       const user = userResult.getValueOrThrow()

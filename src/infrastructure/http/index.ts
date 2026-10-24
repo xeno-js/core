@@ -1,1 +1,1 @@
-export * from './base.http-adapter'
+export * from './adapter.http'

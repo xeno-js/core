@@ -6,10 +6,10 @@
   IRequest,
   ResultType,
 } from '@xeno-js/shared'
-import { AppError, ERROR_CODES, Result, TOKENS } from '@xeno-js/shared'
+import type { IServiceScope, IServiceScopeAccessor, XenoRegistry } from '@xeno-js/shared'
+import { AppError, ERROR_CODES, Result } from '@xeno-js/shared'
+import { TOKENS } from '@xeno-js/shared'
 import { describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, IServiceScope, IServiceScopeAccessor } from '@/domain'
 
 import { Mediator } from '../mediator'
 
@@ -17,7 +17,7 @@ import { Mediator } from '../mediator'
 // Helpers
 // ---------------------------------------------------------------------------
 
-type Registry = ApplicationRegistry<unknown>
+type Registry = XenoRegistry
 
 interface TestResponse {
   value: string

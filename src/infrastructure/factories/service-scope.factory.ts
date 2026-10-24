@@ -1,6 +1,5 @@
 import type { IFactory } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IServiceContainer, IServiceScope } from '@/domain'
+import type { IServiceContainer, IServiceScope, XenoRegistry } from '@xeno-js/shared'
 
 /**
  * @description Factory class responsible for creating instances of IServiceScope. It implements the IFactory interface, allowing for easy integration with dependency injection systems. The factory encapsulates the creation logic for the IServiceScope, promoting separation of concerns and allowing for flexibility in managing IServiceScope instances across the application.
@@ -11,9 +10,10 @@ import type { ApplicationRegistry, IServiceContainer, IServiceScope } from '@/do
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js 
    */
-export class ServiceScopeFactory<
-  T extends ApplicationRegistry = ApplicationRegistry,
-> implements IFactory<void, IServiceScope<T>> {
+export class ServiceScopeFactory<T extends XenoRegistry = XenoRegistry> implements IFactory<
+  void,
+  IServiceScope<T>
+> {
   constructor(private readonly _container: IServiceContainer<T>) {}
 
   public create(): IServiceScope<T> {

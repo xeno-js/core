@@ -1,7 +1,6 @@
 import type { Optional } from '@xeno-js/shared'
+import type { IAllowOrigin } from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
-
-import type { IAllowOrigin } from '@/domain'
 
 /**
  * @description A class that implements the IAllowOrigin interface.
