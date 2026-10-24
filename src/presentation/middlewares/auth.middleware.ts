@@ -1,5 +1,4 @@
 import type {
-  ExtendedRequest,
   IGateKeeper,
   ILogger,
   IMiddleware,
@@ -7,10 +6,10 @@ import type {
   Optional,
   RequestContext,
   ResponseDto,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { IRequestContext, XenoRegistry } from '@xeno-js/shared'
 import { GuidHelper, HttpHelper, STATUS_CODES } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IRequestContext } from '@/domain'
 
 /**
  * @description Middleware that checks if the request is authenticated. If the request is not authenticated, it returns a 401
@@ -18,7 +17,7 @@ import type { ApplicationRegistry, IRequestContext } from '@/domain'
  * @author Xeno
  * @version 1.0.0
  * @since 2025-09-30
- * @param {IRequestContext<RequestContext, ApplicationRegistry<unknown>>} _requestContext - The request context to use for resolving services.
+ * @param {IRequestContext<RequestContext, XenoRegistry>} _requestContext - The request context to use for resolving services.
  * @param {IGateKeeper} _gateKeeper - The gate keeper to use for authentication.
  * @param {ILogger} _logger - The logger to use for logging.
  * @param {IServiceExtractor<HttpHeaders, Optional<string>>} _tokenExtractor - The token extractor to use for extracting the token from the request.
@@ -32,15 +31,14 @@ import type { ApplicationRegistry, IRequestContext } from '@/domain'
  */
 export class AuthenticationMiddleware implements IMiddleware {
   constructor(
-    private readonly _requestContext: IRequestContext<RequestContext, ApplicationRegistry<unknown>>,
+    private readonly _requestContext: IRequestContext<RequestContext, XenoRegistry>,
     private readonly _tokenExtractor: IServiceExtractor<Request['headers'], Optional<string>>,
     private readonly _gateKeeper: IGateKeeper,
     private readonly _logger: ILogger,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const token = this._tokenExtractor.extract(req.headers)

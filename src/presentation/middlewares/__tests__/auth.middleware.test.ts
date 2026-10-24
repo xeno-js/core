@@ -1,15 +1,14 @@
 import type {
-  ExtendedRequest,
   IGateKeeper,
   ILogger,
   IServiceExtractor,
   Optional,
   RequestContext,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { ApplicationRegistry, IRequestContext } from '@xeno-js/shared'
 import { STATUS_CODES } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, IRequestContext } from '@/domain'
 
 import { AuthenticationMiddleware } from '../auth.middleware'
 
@@ -88,11 +87,11 @@ describe('AuthenticationMiddleware', () => {
     const req = {
       headers: new Headers({ Authorization: 'Bearer valid-token' }),
       path: '/api/protected',
-    } as unknown as ExtendedRequest
+    } as unknown as XenoRequest
     const nextResult = { status: 200, ok: true, data: { ok: true } }
     const next = vi.fn().mockResolvedValue(nextResult)
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(response).toBe(nextResult)
     expect(extractMock).toHaveBeenCalledWith(req.headers)
@@ -130,10 +129,10 @@ describe('AuthenticationMiddleware', () => {
     const req = {
       headers: new Headers({ Authorization: 'Bearer bad-token' }),
       path: '/api/protected',
-    } as unknown as ExtendedRequest
+    } as unknown as XenoRequest
     const next = vi.fn()
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(response.status).toBe(STATUS_CODES.UNAUTHORIZED)
     expect(response.ok).toBe(false)
@@ -181,10 +180,10 @@ describe('AuthenticationMiddleware', () => {
     const req = {
       headers: new Headers(),
       path: '/api/no-context',
-    } as unknown as ExtendedRequest
+    } as unknown as XenoRequest
     const next = vi.fn()
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(response.status).toBe(STATUS_CODES.UNAUTHORIZED)
     expect(response.ok).toBe(false)

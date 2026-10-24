@@ -53,7 +53,7 @@ export class QueryCachingPipeline<
     const key = request.cacheOptions.isUserScoped
       ? this._cacheKeyBuilder.buildUserScopedKey(request.cacheOptions.cacheKey)
       : this._cacheKeyBuilder.buildContextualKey(request.cacheOptions.cacheKey)
-    // 1. Read (Cache Hit)
+
     if (!bypass) {
       try {
         const cachedResponse = await this._cacheService.get<TResult>(key)
@@ -64,17 +64,14 @@ export class QueryCachingPipeline<
           return Result.ok(cachedResponse)
         }
       } catch (error) {
-        // If Redis fails, we don't crash the app. Log and proceed to the DB.
         this._logger.warn(
           `[Cache ERROR] Unable to read cache for: ${request.cacheOptions.cacheKey}. Proceeding to DB. Error: ${error instanceof Error ? error.message : String(error)}`,
         )
       }
     }
 
-    // 2. Cache Miss: Delegate control to the Handler that queries the DB
     const result = await next()
 
-    // 3. Write: If the Handler succeeded, save the result in cache
     if (result.isOk()) {
       try {
         await this._cacheService.set(key, result.getValueOrThrow(), request.cacheOptions.ttl)

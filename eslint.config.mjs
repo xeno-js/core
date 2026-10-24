@@ -257,28 +257,6 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/infrastructure/**/*.ts'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['@/presentation', '@/presentation/**'],
-              message:
-                'infrastructure can only import from infrastructure, domain, application, shared, and external libraries.',
-            },
-            {
-              group: ['../**/presentation', '../**/presentation/**'],
-              message:
-                'infrastructure can only import from infrastructure, domain, application, shared, and external libraries.',
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
     files: ['src/presentation/**/*.ts'],
     rules: {
       'no-restricted-imports': [

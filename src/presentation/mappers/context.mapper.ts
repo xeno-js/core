@@ -1,5 +1,4 @@
 import type {
-  ExtendedRequest,
   IBaseMapper,
   Identity,
   MessagingContext,
@@ -13,7 +12,6 @@ interface ContextMapperSource {
   readonly metadata: Metadata
   readonly identity: Identity
   readonly path: string
-  readonly transport: { req: ExtendedRequest; res: Response }
 }
 
 export const ContextMapper: IBaseMapper<ContextMapperSource, RequestContext> = Object.freeze({
@@ -26,7 +24,7 @@ export const ContextMapper: IBaseMapper<ContextMapperSource, RequestContext> = O
    * @link https://github.com/xeno-js/xeno-js
    */
   map: (source: ContextMapperSource): RequestContext => {
-    const { metadata, identity, path, transport } = source
+    const { metadata, identity, path } = source
 
     const network: NetworkContext = {
       requestId: metadata.requestId!,
@@ -34,9 +32,9 @@ export const ContextMapper: IBaseMapper<ContextMapperSource, RequestContext> = O
       userAgent: metadata.userAgent,
       formatIndicator: metadata.formatIndicator,
       path,
-      transport,
       csrf: metadata.csrf,
       csrfCookie: metadata.csrfCookie,
+      cookies: metadata.cookies,
       origin: metadata.origin,
     }
     const tracing: TracingContext = {
@@ -78,12 +76,18 @@ function _buildMessagingContext(meta: Metadata): Optional<MessagingContext> {
   const hasMessagingData =
     hasSequenceData || Guards.isDefined(meta.expiration) || Guards.isDefined(meta.returnAddress)
 
-  const messaging: Optional<MessagingContext> = hasMessagingData
-    ? {
-        returnAddress: meta.returnAddress,
-        expiration: meta.expiration,
-        sequence: hasSequenceData ? meta.sequence : undefined,
-      }
-    : undefined
-  return messaging
+  if (!hasMessagingData) return undefined
+
+  return {
+    returnAddress: meta.returnAddress,
+    expiration: meta.expiration,
+    sequence:
+      hasSequenceData && Guards.isDefined(meta.sequence)
+        ? {
+            sequenceId: meta.sequence.sequenceId,
+            position: meta.sequence.position,
+            size: meta.sequence.size,
+          }
+        : undefined,
+  }
 }

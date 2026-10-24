@@ -1,9 +1,15 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
+// import { AsyncLocalStorage } from 'node:async_hooks'
 
-import type { Factory, IDisposable } from '@xeno-js/shared'
+import type {
+  Factory,
+  IDisposable,
+  IServiceContainer,
+  IServiceScope,
+  Lifetime,
+  Optional,
+  XenoRegistry,
+} from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IServiceContainer, IServiceScope, Lifetime } from '@/domain'
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -15,7 +21,7 @@ import type { ApplicationRegistry, IServiceContainer, IServiceScope, Lifetime } 
  * @since 2025-09-30
  * @link https://github.com/xeno-js/xeno-js
  */
-interface RegistrationEntry<T, Registry extends ApplicationRegistry = ApplicationRegistry> {
+interface RegistrationEntry<T, Registry extends XenoRegistry = XenoRegistry> {
   /**
    * The unique injection token that identifies the service registration.
    *
@@ -82,7 +88,7 @@ interface ResolutionContext<Registry> {
  * @link https://github.com/xeno-js/xeno-js
  */
 class ContainerScope<
-  Registry extends ApplicationRegistry = ApplicationRegistry,
+  Registry extends XenoRegistry = XenoRegistry,
 > implements IServiceScope<Registry> {
   private readonly scopedInstances = new Map<keyof Registry, unknown>()
   private readonly trackedDisposables: unknown[] = []
@@ -156,12 +162,12 @@ class ContainerScope<
  * @link https://github.com/xeno-js/xeno-js
  */
 export class ServiceContainer<
-  Registry extends ApplicationRegistry = ApplicationRegistry,
+  Registry extends XenoRegistry = XenoRegistry,
 > implements IServiceContainer<Registry> {
   private readonly registrations = new Map<keyof Registry, RegistrationEntry<unknown, Registry>>()
   private readonly singletonInstances = new Map<keyof Registry, unknown>()
   private readonly rootScope: ContainerScope<Registry>
-  private readonly resolutionStack = new AsyncLocalStorage<ResolutionContext<Registry>>()
+  private resolutionStack: Optional<ResolutionContext<Registry>> = undefined
 
   constructor() {
     this.rootScope = new ContainerScope<Registry>(this)
@@ -217,6 +223,10 @@ export class ServiceContainer<
     return this.internalExecuteInContext(() => this.rootScope.resolve(token))
   }
 
+  public isRegistered<K extends keyof Registry>(token: K): boolean {
+    return this.registrations.has(token)
+  }
+
   public createScope(): IServiceScope<Registry> {
     return new ContainerScope<Registry>(this, this.rootScope)
   }
@@ -231,14 +241,17 @@ export class ServiceContainer<
    * @link https://github.com/xeno-js/xeno-js
    */
   internalExecuteInContext<T>(callback: () => T): T {
-    const currentStack = this.resolutionStack.getStore()
-    if (!Guards.isDefined(currentStack)) {
-      const initialContext: ResolutionContext<Registry> = {
-        stack: new Set<keyof Registry>(),
-      }
-      return this.resolutionStack.run(initialContext, callback)
+    if (Guards.isDefined(this.resolutionStack)) return callback()
+
+    this.resolutionStack = {
+      stack: new Set<keyof Registry>(),
     }
-    return callback()
+
+    try {
+      return callback()
+    } finally {
+      this.resolutionStack = undefined
+    }
   }
 
   /**
@@ -266,7 +279,7 @@ export class ServiceContainer<
       )
     }
 
-    const currentStack = this.resolutionStack.getStore()
+    const currentStack = this.resolutionStack
     if (!Guards.isDefined(currentStack)) {
       throw new Error(`[DI Container Error]: Execution outside the IoC container context.`)
     }
@@ -309,7 +322,7 @@ export class ServiceContainer<
       }
 
       return executeWithStackIsolation('singleton', () => {
-        const instance = registration.factory(currentScope) as Registry[K]
+        const instance = registration.factory(this.rootScope) as Registry[K]
         this.singletonInstances.set(token, instance)
         this.rootScope.trackInstance(instance)
         return instance

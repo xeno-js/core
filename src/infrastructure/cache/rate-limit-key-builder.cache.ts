@@ -1,7 +1,6 @@
 import type { Optional, RequestContext } from '@xeno-js/shared'
+import type { IRateLimitKeyBuilder, IRequestContext, XenoRegistry } from '@xeno-js/shared'
 import { Guards } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IRateLimitKeyBuilder, IRequestContext } from '@/domain'
 
 /**
  * @description The RateLimitKeyBuilder class implements the IRateLimitKeyBuilder interface, providing a method to build rate limit keys based on the user's identity. This class utilizes an instance of IIdentityAccessor to retrieve the current user's identity, allowing for the creation of tenant-specific rate limit keys in multi-tenant applications. If a tenant ID is present in the identity, the rate limit key is prefixed with the tenant ID; otherwise, it defaults to a public rate limit key. This approach ensures that rate limit data is appropriately scoped to the user's context, preventing data leakage between tenants.
@@ -15,10 +14,7 @@ import type { ApplicationRegistry, IRateLimitKeyBuilder, IRequestContext } from 
  */
 export class RateLimitKeyBuilder implements IRateLimitKeyBuilder {
   constructor(
-    private readonly _contextAccessor: IRequestContext<
-      RequestContext,
-      ApplicationRegistry<unknown>
-    >,
+    private readonly _contextAccessor: IRequestContext<RequestContext, XenoRegistry<unknown>>,
   ) {}
 
   public buildRateLimitKey(resource: string): Optional<string> {

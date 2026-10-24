@@ -18,7 +18,7 @@ import { AppError, Result } from '@xeno-js/shared'
  * @since 2025-09-30
  * @link https://github.com/xeno-js/xeno-js
  */
-export abstract class RemoteDataSource implements IRemoteDataSource {
+export class RemoteDataSource implements IRemoteDataSource {
   /** The constructor of the RemoteDataSource class takes two dependencies: an instance of an agnostic HTTP client that implements the IHttpClient interface, and an instance of a resilience service that implements the IServiceResilience interface.
    * These dependencies are injected into the class, allowing for greater flexibility and testability.
    * The HTTP client is used to send requests to remote endpoints, while the resilience service is used to execute these requests with built-in support for retries, timeouts, and circuit breakers, ensuring that the remote calls are more resilient to failures and can recover gracefully from errors.

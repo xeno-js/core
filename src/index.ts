@@ -1,8 +1,24 @@
-export { BaseAuthorizationStrategy, ContainerUtils, Specification } from './application'
-export type * from './domain'
-export { TOKENS } from './domain'
-export type { XenoRegistry } from './infrastructure'
-export { AppBuilder, BaseHttpAdapter, DbModule, ReadDao, Repository } from './infrastructure'
+export {
+  BaseAuthorizationStrategy,
+  BaseHandler,
+  Command,
+  Query,
+  SchemaValidationStrategy,
+  Specification,
+  ValidationPipeline,
+} from './application'
+export {
+  AuthModule,
+  CacheModule,
+  ContextModule,
+  DbModule,
+  HttpServerModule,
+  LoggerModule,
+  ReadDao,
+  Repository,
+  XenoAppBuilder,
+} from './infrastructure'
+export * from './infrastructure/http/native-route.helper'
+export * from './infrastructure/plugin'
 export { BaseController } from './presentation'
 export * from '@xeno-js/shared'
-export { Query } from '@xeno-js/shared'

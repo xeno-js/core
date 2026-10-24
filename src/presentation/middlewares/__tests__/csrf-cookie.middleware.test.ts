@@ -1,13 +1,12 @@
 import type {
-  ExtendedRequest,
   Guid,
   IContextAccessor,
   NetworkContext,
   RequestContext,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { ICsrfTokenService, MiddlewareConfig } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ICsrfTokenService, MiddlewareConfig } from '@/domain'
 
 import { CsrfCookieMiddleware } from '../csrf-cookie.middleware'
 
@@ -19,8 +18,7 @@ const transport = {
     path,
     method,
     headers,
-  } as unknown as ExtendedRequest,
-  res: {} as unknown as Response,
+  } as unknown as XenoRequest,
 }
 
 function makeMiddleware(
@@ -79,11 +77,11 @@ describe('CsrfCookieMiddleware', () => {
     })
     const next = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: {}, data: {} })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
     expect(response.ok).toBe(true)
     expect(generate).not.toHaveBeenCalled()
-    expect(response.headers['Set-Cookie']).toBeUndefined()
+    expect(response.headers?.['Set-Cookie']).toBeUndefined()
   })
 
   it('returns response without generating cookie when csrfCookie is already present in network context', async () => {
@@ -104,11 +102,11 @@ describe('CsrfCookieMiddleware', () => {
     })
     const next = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: {}, data: {} })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
     expect(response.ok).toBe(true)
     expect(generate).not.toHaveBeenCalled()
-    expect(response.headers['Set-Cookie']).toBeUndefined()
+    expect(response.headers?.['Set-Cookie']).toBeUndefined()
   })
 
   it('generates CSRF token and sets default cookie when user is authenticated and cookie is missing', async () => {
@@ -138,13 +136,13 @@ describe('CsrfCookieMiddleware', () => {
     )
     const next = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: {}, data: {} })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
     expect(response.ok).toBe(true)
     expect(generate).toHaveBeenCalledOnce()
     expect(generate).toHaveBeenCalledWith('user-123')
 
-    const setCookieHeaders = response.headers['Set-Cookie'] as string[]
+    const setCookieHeaders = response.headers?.['Set-Cookie'] as string[]
     expect(setCookieHeaders).toBeDefined()
     expect(setCookieHeaders).toHaveLength(1)
     expect(setCookieHeaders[0]).toContain(
@@ -184,9 +182,9 @@ describe('CsrfCookieMiddleware', () => {
     )
     const next = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: {}, data: {} })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
-    const setCookieHeaders = response.headers['Set-Cookie'] as string[]
+    const setCookieHeaders = response.headers?.['Set-Cookie'] as string[]
     expect(setCookieHeaders[0]).toContain('custom_csrf=custom-token')
     expect(setCookieHeaders[0]).toContain('SameSite=strict')
     expect(setCookieHeaders[0]).toContain('Max-Age=7200')
@@ -227,9 +225,9 @@ describe('CsrfCookieMiddleware', () => {
       data: {},
     })
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const response = await middleware.execute(transport.req, next)
 
-    const setCookieHeaders = response.headers['Set-Cookie'] as string[]
+    const setCookieHeaders = response.headers?.['Set-Cookie'] as string[]
     expect(setCookieHeaders).toHaveLength(2)
     expect(setCookieHeaders).toEqual([
       'session=active',
@@ -237,5 +235,47 @@ describe('CsrfCookieMiddleware', () => {
         'custom_csrf=new-token; Path=/; Secure; SameSite=strict; Max-Age=7200',
       ),
     ])
+  })
+  it('uses default cookie settings and encodes the generated token when response headers are absent', async () => {
+    const { middleware, generate, getContext } = makeMiddleware(
+      {
+        identity: {
+          userId: 'user-123' as Guid,
+          tenantId: '123' as Guid,
+          roles: [],
+          permissions: [],
+          email: 'admin@admin.com',
+          name: 'admin',
+        },
+      },
+      { secret: 'valid-secret' },
+      'token+/value',
+    )
+    const response = { status: 200, ok: true, data: {} }
+    const next = vi.fn().mockResolvedValue(response)
+
+    const result = await middleware.execute(transport.req, next)
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(getContext).toHaveBeenCalledOnce()
+    expect(generate).toHaveBeenCalledWith('user-123')
+    expect(result).toBe(response)
+    expect(result.headers?.['Set-Cookie']).toEqual([
+      '__Host-xeno-csrf=token%2B%2Fvalue; Path=/; Secure; SameSite=lax; Max-Age=3600',
+    ])
+  })
+
+  it('returns the response without generating a token when the request context is missing', async () => {
+    const { middleware, generate, getContext } = makeMiddleware(undefined)
+    const response = { status: 200, ok: true, headers: {}, data: {} }
+    const next = vi.fn().mockResolvedValue(response)
+
+    const result = await middleware.execute(transport.req, next)
+
+    expect(result).toBe(response)
+    expect(next).toHaveBeenCalledOnce()
+    expect(getContext).toHaveBeenCalledOnce()
+    expect(generate).not.toHaveBeenCalled()
+    expect(result.headers?.['Set-Cookie']).toBeUndefined()
   })
 })

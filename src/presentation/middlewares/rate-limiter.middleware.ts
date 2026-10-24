@@ -1,11 +1,12 @@
 import type {
-  ExtendedRequest,
   IContextAccessor,
   ILogger,
   IMiddleware,
   RequestContext,
   ResponseDto,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { IAtomicCache, IRateLimitKeyBuilder } from '@xeno-js/shared'
 import {
   ERROR_CODE_MESSAGES,
   ERROR_CODES,
@@ -14,8 +15,6 @@ import {
   HttpHelper,
   STATUS_CODES,
 } from '@xeno-js/shared'
-
-import type { IAtomicCache, IRateLimitKeyBuilder } from '@/domain'
 
 /**
  * @description The RateLimitMiddleware class implements the IMiddleware interface and provides rate limiting functionality for incoming requests. It uses an IAtomicCache instance to track the number of requests made by each client within a specified time window. If the number of requests exceeds the maximum allowed, the middleware returns a 429 Too Many Requests response. Otherwise it calls the next middleware in the chain.
@@ -42,9 +41,8 @@ export class RateLimitMiddleware implements IMiddleware {
     },
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const cacheKey = this._keyBuilder.buildRateLimitKey(req.path)

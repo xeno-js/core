@@ -1,4 +1,4 @@
-import type { ICryptoService } from '@/domain'
+import type { ICryptoService } from '@xeno-js/shared'
 
 /**
  * @description The EdgeCryptoService class implements the ICryptoService interface, providing a concrete implementation for cryptographic operations using the Web Cryptography API.

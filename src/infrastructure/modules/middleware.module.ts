@@ -1,220 +1,269 @@
+import type { ILogger, IMiddleware, IRoute, Optional, RequestContext } from '@xeno-js/shared'
 import type {
-  Dictionary,
-  HttpMethod,
-  IMiddleware,
-  IServiceExtractor,
-  Optional,
-} from '@xeno-js/shared'
-
-import type {
-  ApplicationRegistry,
   IAllowMethod,
   IModule,
+  IRequestContext,
   IServiceContainer,
   MiddlewareConfig,
-} from '@/domain'
+  NativeRouteDefinition,
+  XenoRegistry,
+} from '@xeno-js/shared'
+import { Guards, LOG_LEVEL } from '@xeno-js/shared'
+import { TOKENS } from '@xeno-js/shared'
 
-/**
- * @description MiddlewareModule is responsible for registering essential services and middlewares that are fundamental to the application's operation. This includes setting up the logging infrastructure and the request context middleware. By implementing the IModule interface, MiddlewareModule can be easily integrated into the application's dependency injection container, allowing it to configure necessary services and middlewares during the application startup phase.
- *
- * @author Xeno
- * @version 1.0.0
- * @since 2025-09-30
- * @link https://github.com/xeno-js/xeno-js
- */
-export class MiddlewareModule<
-  TRegistry extends ApplicationRegistry = ApplicationRegistry,
-> implements IModule<
+import { ClaimsIdentityMapper, GateKeeper, NoAuthGateKeeper } from '@/application'
+import {
+  AllowOriginMiddleware,
+  AuthenticationMiddleware,
+  CompositeMiddleware,
+  CookieResponseMiddleware,
+  CORSMiddleware,
+  CsrfCookieMiddleware,
+  CsrfMiddleware,
+  MethodCheckMiddleware,
+  OptionsMiddleware,
+  RateLimitMiddleware,
+  RequestContextMiddleware,
+} from '@/presentation'
+
+import { RateLimitKeyBuilder } from '../cache'
+import { AllowMethodFactory } from '../factories'
+import { HttpDispatcher } from '../http/dispatcher.http'
+import {
+  AllowOrigin,
+  BearerTokenExtractor,
+  ClientIpResolver,
+  CsrfTokenService,
+  EdgeCryptoService,
+  HttpCookieExtractor,
+  HttpHeaderExtractor,
+} from '../services'
+import { CacheModule } from './cache.module'
+import { LoggerUtils } from './utils'
+
+export class MiddlewareModule<TRegistry extends XenoRegistry = XenoRegistry> implements IModule<
   TRegistry,
-  MiddlewareConfig & {
-    isAuth: boolean
-    customTokenExtractor: Optional<() => IServiceExtractor<Request['headers'], Optional<string>>>
-  }
+  MiddlewareConfig
 > {
-  async configure(
+  public async configure(
     container: IServiceContainer<TRegistry>,
-    opts: MiddlewareConfig & {
-      isAuth: boolean
-      customTokenExtractor: Optional<() => IServiceExtractor<Request['headers'], Optional<string>>>
-    },
+    opts: MiddlewareConfig & { routes: NativeRouteDefinition<TRegistry>[] },
   ): Promise<void> {
-    const { Guards, TOKENS } = await import('@xeno-js/shared')
+    if (!container.isRegistered(TOKENS.LOGGER))
+      await LoggerUtils.addLogger(container, { level: LOG_LEVEL.INFO, console: true })
 
-    const { HttpCookieExtractor } = await import('../services')
-    const { HttpHeaderExtractor } = await import('../services')
-    const tokenExtractor = await this._getTokenExtractor(
-      opts.isSSR,
-      opts.authCookieName,
-      opts.customTokenExtractor,
-    )
+    const logger = container.resolve(TOKENS.LOGGER)
+    const requestContext = container.resolve(TOKENS.REQUEST_CONTEXT) as IRequestContext<
+      RequestContext,
+      TRegistry
+    >
+    const configuration = container.resolve(TOKENS.CONFIGURATION_SERVICE)
+
+    const allowMethod = new AllowMethodFactory().create<TRegistry>(opts.routes)
 
     container.addSingleton(
       TOKENS.SERVICE_EXTRACTOR,
       () =>
         new HttpHeaderExtractor(
-          tokenExtractor,
           new HttpCookieExtractor(),
           opts.trustedIpHeader,
           opts.csrf?.cookieName ?? '__Host-xeno-csrf',
+          opts.csrf?.headerName ?? 'x-csrf-token',
         ),
     )
 
-    const { ClientIpResolver } = await import('../services')
+    const getRouteMatcher = () => container.resolve(TOKENS.ROUTE_MATCHER)
 
-    const middlewares: IMiddleware[] = []
-    const requestContext = container.resolve(TOKENS.REQUEST_CONTEXT)
-    const logger = container.resolve(TOKENS.LOGGER)
+    const withCredentials =
+      Guards.isDefined(opts.cors?.withCredentials) && opts.cors?.withCredentials ? 'true' : 'false'
 
-    const { RequestContextMiddleware } = await import('@/presentation')
-    middlewares.push(
-      new RequestContextMiddleware(
+    const [optionsMw, cookieRespMw, corsMw, authMw, csrfMws] = [
+      this._buildOptionsMiddleware(
+        opts,
         requestContext,
-        container.resolve(TOKENS.SERVICE_EXTRACTOR),
-        new ClientIpResolver(opts.trustedProxies),
-        logger,
+        () => allowMethod,
+        withCredentials,
+        getRouteMatcher,
       ),
+      this._buildCookieResponseMiddleware(opts, requestContext),
+      this._buildCorsMiddleware(opts, requestContext, withCredentials, getRouteMatcher),
+      this._createAuthMiddleware(container, requestContext, logger, opts),
+      this._buildCsrfMiddlewares(opts, container, requestContext, getRouteMatcher),
+    ]
+
+    const rateLimitMw = await this._buildRateLimitMiddleware(
+      opts,
+      container,
+      requestContext,
+      logger,
     )
 
-    const configuration = container.resolve(TOKENS.CONFIGURATION_SERVICE)
+    const requestCtxMw = new RequestContextMiddleware(
+      requestContext,
+      container.resolve(TOKENS.SERVICE_EXTRACTOR),
+      new ClientIpResolver(opts.trustedProxies),
+      logger,
+    )
+
     const defaultOrigin =
       configuration.get('APP_URL') ?? `http://localhost:${configuration.getNumber('PORT', 3000)}`
+    const origins = !Guards.isNullOrEmpty(opts.cors?.allowOrigins)
+      ? opts.cors.allowOrigins
+      : [defaultOrigin]
 
-    const origins = !Guards.isNullOrEmpty(opts.allowOrigins) ? opts.allowOrigins : [defaultOrigin]
-
-    if (opts.withCredentials && origins.includes('*'))
-      throw new Error(
-        'Wildcard CORS origin is not allowed when withCredentials is set to true in addHttpCore',
-      )
-
-    const { AllowOrigin } = await import('../services')
-    const { AllowOriginMiddleware } = await import('@/presentation')
-    middlewares.push(new AllowOriginMiddleware(new AllowOrigin(origins), requestContext, logger))
-
-    const withCredentials = opts.withCredentials ? 'true' : 'false'
-    const allowMethod = await this._getAllowMethod(
-      opts.optionsMiddleware || opts.cors,
-      opts.routeRegistry,
+    const allowOriginMw = new AllowOriginMiddleware(
+      new AllowOrigin(origins),
+      requestContext,
+      logger,
+      getRouteMatcher,
     )
+    const methodCheckMw = new MethodCheckMiddleware(requestContext, allowMethod)
 
-    if (opts.optionsMiddleware) {
-      const { OptionsMiddleware } = await import('@/presentation')
-      middlewares.push(
-        new OptionsMiddleware(requestContext, allowMethod!, opts.allowHeaders, withCredentials),
-      )
-    }
+    const pipeline: IMiddleware[] = [
+      requestCtxMw,
+      ...(Guards.isDefined(cookieRespMw) ? [cookieRespMw] : []),
+      allowOriginMw,
+      ...(Guards.isDefined(optionsMw) && !Guards.isNullOrEmpty(opts.routes) ? [optionsMw] : []),
+      ...(!Guards.isNullOrEmpty(opts.routes) ? [methodCheckMw] : []),
+      ...(Guards.isDefined(corsMw) ? [corsMw] : []),
+      ...(Guards.isDefined(rateLimitMw) ? [rateLimitMw] : []),
+      authMw,
+      ...(!Guards.isNullOrEmpty(csrfMws) ? csrfMws : []),
+    ]
 
-    if (opts.cors) {
-      const { CORSMiddleware } = await import('@/presentation')
-      middlewares.push(new CORSMiddleware(requestContext, withCredentials))
-    }
+    container.addSingleton(TOKENS.MIDDLEWARE, () => new CompositeMiddleware(pipeline))
 
-    if (Guards.isDefined(opts.routeRegistry)) {
-      const { MethodCheckMiddleware } = await import('@/presentation')
-      middlewares.push(new MethodCheckMiddleware(requestContext, allowMethod!))
-    }
-
-    const { AuthenticationMiddleware } = await import('@/presentation')
-    if (!opts.isAuth) {
-      const { NoAuthGateKeeper } = await import('@/application')
-      middlewares.push(
-        new AuthenticationMiddleware(
-          requestContext,
-          tokenExtractor,
-          new NoAuthGateKeeper(),
-          logger,
+    container.addSingleton(
+      TOKENS.HTTP_DISPATCHER,
+      (c) =>
+        new HttpDispatcher<TRegistry>(
+          c.resolve(TOKENS.REQUEST_CONTEXT) as IRequestContext<RequestContext, TRegistry>,
+          c.resolve(TOKENS.MIDDLEWARE),
+          c.resolve(TOKENS.SERVICE_PROXY),
         ),
-      )
-    } else {
-      const { ClaimsIdentityMapper } = await import('@/application')
-      const { GateKeeper } = await import('@/application')
-      middlewares.push(
-        new AuthenticationMiddleware(
-          requestContext,
-          tokenExtractor,
-          new GateKeeper(container.resolve(TOKENS.BASE_AUTH_SERVICE), new ClaimsIdentityMapper()),
-          logger,
-        ),
-      )
-    }
+    )
+  }
 
-    if (
-      Guards.isDefined(opts.rateLimite.maxRequests) ||
-      Guards.isDefined(opts.rateLimite.windowSeconds)
-    ) {
-      const maxRequests = opts.rateLimite.maxRequests ?? 30
-      Guards.throwIfNegative(maxRequests, 'MaxRequests must be positive')
-      Guards.throwIfNotInteger(maxRequests, 'MaxRequests must be an integer')
-      const windowSeconds = opts.rateLimite.windowSeconds ?? 30
-      Guards.throwIfNegative(windowSeconds, 'WindowSeconds must be positive')
-      Guards.throwIfNotInteger(windowSeconds, 'WindowSeconds must be an integer')
+  private _buildCookieResponseMiddleware(
+    opts: MiddlewareConfig,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+  ): Optional<IMiddleware> {
+    if (!Guards.isDefined(opts.isSSR) || !opts.isSSR) return undefined
 
-      const { RateLimitKeyBuilder } = await import('../cache')
-      const { RateLimitMiddleware } = await import('@/presentation')
-      middlewares.push(
-        new RateLimitMiddleware(
-          requestContext,
-          container.resolve(TOKENS.CACHE),
-          new RateLimitKeyBuilder(requestContext),
-          logger,
-          { maxRequests, windowSeconds },
-        ),
-      )
-    }
+    return new CookieResponseMiddleware<TRegistry>(requestContext)
+  }
 
-    if (Guards.isDefined(opts.csrf)) {
-      const csrf = opts.csrf
-      const { EdgeCryptoService } = await import('../services')
-      container.addSingleton('CRYPTO_SERVICE', () => new EdgeCryptoService())
+  private _buildCsrfMiddlewares(
+    opts: MiddlewareConfig,
+    container: IServiceContainer<TRegistry>,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+    routePolicyCheck: () => IRoute<TRegistry>,
+  ) {
+    if (!Guards.isDefined(opts.csrf)) return []
+    const csrf = opts.csrf
 
-      const { CsrfTokenService } = await import('../services')
-      container.addSingleton('CSRF_TOKEN_SERVICE', (c) => {
-        return new CsrfTokenService(csrf.secret, c.resolve('CRYPTO_SERVICE'))
-      })
-
-      const { CsrfCookieMiddleware } = await import('@/presentation')
-      middlewares.push(
-        new CsrfCookieMiddleware(
-          requestContext,
-          container.resolve('CSRF_TOKEN_SERVICE'),
-          opts.csrf,
-        ),
-      )
-
-      const { CsrfMiddleware } = await import('@/presentation')
-      middlewares.push(new CsrfMiddleware(requestContext, container.resolve('CSRF_TOKEN_SERVICE')))
-    }
-
-    const { CompositeMiddleware } = await import('@/presentation')
-    container.addSingleton(TOKENS.MIDDLEWARE, () => {
-      return new CompositeMiddleware(middlewares)
+    container.addSingleton(TOKENS.CRYPTO_SERVICE, () => new EdgeCryptoService())
+    container.addSingleton(TOKENS.CSRF_TOKEN_SERVICE, (c) => {
+      return new CsrfTokenService(csrf.secret, c.resolve(TOKENS.CRYPTO_SERVICE))
     })
+
+    return [
+      new CsrfCookieMiddleware(requestContext, container.resolve(TOKENS.CSRF_TOKEN_SERVICE), csrf),
+      new CsrfMiddleware(
+        requestContext,
+        container.resolve(TOKENS.CSRF_TOKEN_SERVICE),
+        routePolicyCheck,
+      ),
+    ]
   }
 
-  private async _getTokenExtractor(
-    isSSR: boolean,
-    cookieName: Optional<string>,
-    customTokenExtractor: Optional<() => IServiceExtractor<Request['headers'], Optional<string>>>,
-  ): Promise<IServiceExtractor<Request['headers'], Optional<string>>> {
-    const { Guards } = await import('@xeno-js/shared')
-    if (Guards.isDefined(customTokenExtractor)) return customTokenExtractor()
-    if (isSSR) {
-      const { SupabaseSsrTokenExtractor } = await import('../services')
-      return new SupabaseSsrTokenExtractor()
-    } else {
-      const { BearerTokenExtractor } = await import('../services')
+  private async _buildRateLimitMiddleware(
+    opts: MiddlewareConfig,
+    container: IServiceContainer<TRegistry>,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+    logger: ILogger,
+  ) {
+    if (Guards.isDefined(opts.rateLimit?.enabled) && opts.rateLimit?.enabled) {
+      const maxRequests = opts.rateLimit?.maxRequests ?? 100
+      const windowSeconds = opts.rateLimit?.windowSeconds ?? 60
 
-      return new BearerTokenExtractor(cookieName ?? 'sb-access-token')
+      if (!container.isRegistered(TOKENS.CACHE)) {
+        await new CacheModule().configure(container)
+      }
+
+      return new RateLimitMiddleware(
+        requestContext,
+        container.resolve(TOKENS.CACHE),
+        new RateLimitKeyBuilder(requestContext),
+        logger,
+        { maxRequests, windowSeconds },
+      )
     }
   }
 
-  private async _getAllowMethod(
-    configure: boolean,
-    opts: Optional<Dictionary<HttpMethod[]>>,
-  ): Promise<Optional<IAllowMethod>> {
-    const { Guards } = await import('@xeno-js/shared')
-    if (!configure || !Guards.isDefined(opts)) return undefined
+  private _buildCorsMiddleware(
+    opts: MiddlewareConfig,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+    withCredentials: Optional<'true' | 'false'>,
+    routePolicyCheck: () => IRoute<TRegistry>,
+  ) {
+    if (Guards.isDefined(opts.cors?.enabled) && opts.cors.enabled) {
+      return new CORSMiddleware(requestContext, routePolicyCheck, withCredentials)
+    }
+  }
 
-    const { AllowMethodFactory } = await import('../factories/allow-method.factory')
-    return new AllowMethodFactory().create(opts)
+  private _buildOptionsMiddleware(
+    opts: MiddlewareConfig,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+    allowMethod: () => IAllowMethod,
+    withCredentials: Optional<'true' | 'false'>,
+    routePolicyCheck: () => IRoute<TRegistry>,
+  ) {
+    if (Guards.isDefined(opts.cors?.enablePreflight) && opts.cors?.enablePreflight) {
+      return new OptionsMiddleware(
+        requestContext,
+        allowMethod(),
+        routePolicyCheck,
+        opts.cors?.allowHeaders ?? [],
+        withCredentials,
+      )
+    }
+  }
+
+  private _createAuthMiddleware(
+    container: IServiceContainer<TRegistry>,
+    requestContext: IRequestContext<RequestContext, TRegistry>,
+    logger: ILogger,
+    opts: MiddlewareConfig,
+  ): IMiddleware {
+    if (!container.isRegistered(TOKENS.TOKEN_SERVICE_EXTRACTOR)) {
+      container.addSingleton(
+        TOKENS.TOKEN_SERVICE_EXTRACTOR,
+        () => new BearerTokenExtractor(opts.authCookieName ?? 'sb-access-token'),
+      )
+    }
+    const tokenExtractor = container.resolve(TOKENS.TOKEN_SERVICE_EXTRACTOR)
+
+    if (!container.isRegistered(TOKENS.BASE_AUTH_SERVICE)) {
+      return new AuthenticationMiddleware(
+        requestContext,
+        tokenExtractor,
+        new NoAuthGateKeeper(),
+        logger,
+      )
+    }
+
+    return new AuthenticationMiddleware(
+      requestContext,
+      tokenExtractor,
+      new GateKeeper(() => {
+        const scope = requestContext.getScope()
+        if (!Guards.isDefined(scope)) {
+          throw new Error('[GateKeeper Error]: No active scope found.')
+        }
+        return scope.resolve(TOKENS.BASE_AUTH_SERVICE)
+      }, new ClaimsIdentityMapper()),
+      logger,
+    )
   }
 }

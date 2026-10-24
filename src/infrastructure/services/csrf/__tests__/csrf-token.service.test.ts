@@ -1,6 +1,5 @@
+import type { ICryptoService } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ICryptoService } from '@/domain'
 
 import { CsrfTokenService } from '../csrf-token.service'
 

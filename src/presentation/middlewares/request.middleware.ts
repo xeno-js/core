@@ -1,12 +1,13 @@
 import type {
-  ExtendedRequest,
   Identity,
   ILogger,
   IMiddleware,
   IServiceExtractor,
   RequestContext,
+  XenoRequest,
 } from '@xeno-js/shared'
 import type { Guid, Metadata, ResponseDto } from '@xeno-js/shared'
+import type { IIPResolver, IRequestContext, XenoRegistry } from '@xeno-js/shared'
 import {
   ERROR_CODE_MESSAGES,
   ERROR_CODES,
@@ -15,8 +16,6 @@ import {
   HttpHelper,
   STATUS_CODES,
 } from '@xeno-js/shared'
-
-import type { ApplicationRegistry, IIPResolver, IRequestContext } from '@/domain'
 
 import { ContextMapper } from '../mappers/context.mapper'
 
@@ -42,41 +41,40 @@ export class RequestContextMiddleware implements IMiddleware {
    * @link https://github.com/xeno-js/xeno-js
    */
   constructor(
-    private readonly _requestContext: IRequestContext<RequestContext, ApplicationRegistry<unknown>>,
+    private readonly _requestContext: IRequestContext<RequestContext, XenoRegistry>,
     private readonly _extractor: IServiceExtractor<Request['headers'], Metadata>,
     private readonly _resolver: IIPResolver,
     private readonly _logger: ILogger,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const correlationId = GuidHelper.generate()
     const requestId = GuidHelper.generate()
-    const spanId: Guid = correlationId
-    const formatIndicator = 'application/json'
+    const spanId: Guid = GuidHelper.generate()
+    let formatIndicator = 'application/json'
 
     try {
       const meta = this._extractor.extract(req.headers)
 
       const clientIp = this._resolver.resolve(req, meta.clientIp)
 
+      formatIndicator = meta.formatIndicator
       const metadata: Metadata = {
         ...meta,
         clientIp,
         correlationId: meta.correlationId ?? correlationId,
         requestId: meta.requestId ?? requestId,
         spanId: meta.spanId ?? spanId,
-        formatIndicator: meta.formatIndicator,
+        formatIndicator,
       }
 
       const tmpContext = ContextMapper.map({
         metadata,
         identity: GUEST as unknown as Identity,
         path: req.path,
-        transport: { req, res },
       })
 
       const result = await this._requestContext.runAsync(tmpContext, async () => {

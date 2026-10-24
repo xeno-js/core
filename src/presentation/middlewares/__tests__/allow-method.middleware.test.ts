@@ -1,8 +1,7 @@
-import type { ExtendedRequest, RequestContext } from '@xeno-js/shared'
+import type { RequestContext, XenoRequest } from '@xeno-js/shared'
+import type { ApplicationRegistry, IAllowMethod, IRequestContext } from '@xeno-js/shared'
 import { ERROR_CODE_MESSAGES, ERROR_CODES, STATUS_CODES } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-import type { ApplicationRegistry, IAllowMethod, IRequestContext } from '@/domain'
 
 import { MethodCheckMiddleware } from '../allow-method.middleware'
 
@@ -35,10 +34,10 @@ describe('MethodCheckMiddleware', () => {
   it('passes through when the HTTP method is allowed', async () => {
     const nextResult = { status: 200, ok: true, data: { ok: true } }
     const { middleware, checkMock } = makeMiddleware(true)
-    const req = { path: '/api/users', method: 'GET' } as unknown as ExtendedRequest
+    const req = { path: '/api/users', method: 'GET' } as unknown as XenoRequest
     const next = vi.fn().mockResolvedValue(nextResult)
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(response).toBe(nextResult)
     expect(checkMock).toHaveBeenCalledWith('/api/users', 'GET')
@@ -52,10 +51,10 @@ describe('MethodCheckMiddleware', () => {
     } as unknown as RequestContext
 
     const { middleware, getMethodsMock, getContext } = makeMiddleware(false, context, 'GET, POST')
-    const req = { path: '/api/users', method: 'DELETE' } as unknown as ExtendedRequest
+    const req = { path: '/api/users', method: 'DELETE' } as unknown as XenoRequest
     const next = vi.fn()
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(response.status).toBe(STATUS_CODES.NOT_ALLOWED)
     expect(response.ok).toBe(false)
@@ -84,10 +83,10 @@ describe('MethodCheckMiddleware', () => {
 
   it('generates fallback identifiers when the request context is missing', async () => {
     const { middleware, checkMock } = makeMiddleware(false, undefined, 'GET, POST')
-    const req = { path: '/api/users', method: 'DELETE' } as unknown as ExtendedRequest
+    const req = { path: '/api/users', method: 'DELETE' } as unknown as XenoRequest
     const next = vi.fn()
 
-    const response = await middleware.execute(req, {} as Response, next)
+    const response = await middleware.execute(req, next)
 
     expect(checkMock).toHaveBeenCalledWith('/api/users', 'DELETE')
     expect(response.status).toBe(STATUS_CODES.NOT_ALLOWED)

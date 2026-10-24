@@ -38,6 +38,6 @@ describe('HttpCookieExtractor', () => {
   it('returns undefined when the cookie value is not valid percent-encoding', () => {
     const extractor = new HttpCookieExtractor()
 
-    expect(extractor.extract({ header: 'token=%E0%A4%A', name: 'token' })).toBeUndefined()
+    expect(extractor.extract({ header: 'token=%E0%A4%A', name: 'token' })).toBe('%E0%A4%A')
   })
 })

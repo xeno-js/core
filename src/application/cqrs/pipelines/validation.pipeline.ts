@@ -15,12 +15,11 @@ export class ValidationPipeline<
 > implements IPipelineBehavior<TInput, TResult> {
   /** @description Constructs a new instance of the ValidationPipeline class, which takes an array of IStrategy instances as validators. These validators are used to perform validation checks on the incoming requests. The constructor initializes the pipeline with the provided validators, allowing it to execute the validation logic when handling requests in the CQRS pipeline.
    * @param _validators An array of IStrategy instances that represent the validation strategies to be applied to incoming requests. Each strategy should implement the isApplicable method to determine if it should be applied to a given request and the execute method to perform the actual validation logic, returning a Result indicating the success or failure of the validation.
-  
-   * 
+   *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js 
+   * @link https://github.com/xeno-js/xeno-js
    */
   constructor(private readonly _validators: readonly IStrategy<TInput, boolean>[]) {}
 

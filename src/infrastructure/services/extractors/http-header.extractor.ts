@@ -22,7 +22,6 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
    * @link https://github.com/xeno-js/xeno-js 
    */
   constructor(
-    private readonly _bearerExtractor: IServiceExtractor<Request['headers'], Optional<string>>,
     private readonly _cookieExtractor: IServiceExtractor<
       {
         header: Optional<string>
@@ -32,12 +31,12 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
     >,
     private readonly _trustedIp: Optional<string>,
     private readonly _cookieName: string,
+    private readonly _csrfCookieHeader = 'x-csrf-token',
   ) {}
 
   extract(headers: Request['headers']): Metadata {
     const correlationId = GuidHelper.parse(headers.get('x-correlation-id') ?? undefined)
     const requestId = GuidHelper.parse(headers.get('x-request-id') ?? undefined)
-    const token = this._bearerExtractor.extract(headers)
     const clientIp =
       headers.get(this._trustedIp?.toLowerCase() ?? 'x-forwarded-for') ??
       headers.get('x-real-ip') ??
@@ -53,7 +52,7 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
     const size = headers.get('x-sequence-size')
     const expiration = headers.get('x-expiration')
 
-    const csrf = headers.get('x-csrf-token') ?? undefined
+    const csrf = headers.get(this._csrfCookieHeader) ?? undefined
     const cookieHeader = headers.get('cookie') ?? undefined
     const csrfCookie = this._cookieExtractor.extract({
       header: cookieHeader,
@@ -70,7 +69,6 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
     const metadata: Metadata = {
       correlationId,
       requestId,
-      token,
       clientIp,
       spanId,
       parentSpanId,
@@ -79,6 +77,7 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
       returnAddress,
       csrf,
       csrfCookie,
+      cookies: cookieHeader,
       origin: cleanOrigin,
       referer: cleanReferer,
       sequence: {

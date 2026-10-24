@@ -1,239 +1,263 @@
-﻿import type { ExtendedRequest, Guid, NetworkContext, RequestContext } from '@xeno-js/shared'
-import type { HttpMethod } from '@xeno-js/shared'
+﻿import type {
+  ICsrfTokenService,
+  IRequestContext,
+  NetworkContext,
+  RequestContext,
+  RoutePolicy,
+  XenoRegistry,
+  XenoRequest,
+} from '@xeno-js/shared'
+import type { ResponseDto } from '@xeno-js/shared'
 import { ERROR_CODES, STATUS_CODES } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ApplicationRegistry, ICsrfTokenService, IRequestContext } from '@/domain'
-
 import { CsrfMiddleware } from '../csrf.middleware'
 
-const headers: Request['headers'] = new Headers({ Authorization: 'Bearer tok' })
+vi.mock('@xeno-js/shared', () => ({
+  ERROR_CODE_MESSAGES: { FORBIDDEN: 'Forbidden' },
+  ERROR_CODES: { FORBIDDEN: 'FORBIDDEN' },
+  Guards: {
+    isDefined: (value: unknown) => value !== undefined && value !== null,
+  },
+  GuidHelper: { generate: vi.fn(() => 'generated-id') },
+  HttpHelper: {
+    error: vi.fn((data: unknown, status: number, headers: Record<string, string[]>) => ({
+      data,
+      status,
+      ok: false,
+      headers,
+    })),
+  },
+  STATUS_CODES: { FORBIDDEN: 403 },
+}))
+
 const path = '/api/test'
-const method = 'GET'
-const transport = {
-  req: {
-    path,
-    method,
-    headers,
-  } as unknown as ExtendedRequest,
-  res: {} as unknown as Response,
+
+function makeRequest(method: string, requestPath = path): XenoRequest {
+  return { path: requestPath, method } as unknown as XenoRequest
+}
+
+function makeContext(
+  options: {
+    csrf?: string
+    csrfCookie?: string
+    userId?: string
+    requestId?: string
+    correlationId?: string
+    spanId?: string
+    formatIndicator?: string
+  } = {},
+): RequestContext {
+  return {
+    network: {
+      csrf: options.csrf,
+      csrfCookie: options.csrfCookie,
+      formatIndicator: options.formatIndicator,
+      requestId: options.requestId,
+    } as unknown as NetworkContext,
+    identity: options.userId === undefined ? undefined : { userId: options.userId },
+    tracing: {
+      correlationId: options.correlationId,
+      spanId: options.spanId,
+    },
+  } as unknown as RequestContext
+}
+
+function makeSuccessResponse(): ResponseDto {
+  return {
+    status: 200,
+    ok: true,
+    data: { success: true, data: { ok: true }, meta: {} },
+    headers: {},
+  }
 }
 
 function makeMiddleware(
-  _cookieNamemethod: HttpMethod = 'POST',
-  contextData: Partial<RequestContext> | undefined = {
-    network: {
-      csrf: 'valid-token',
-      csrfCookie: 'valid-token',
-      formatIndicator: 'application/json',
-    } as unknown as NetworkContext,
-    identity: {
-      userId: 'user-123' as Guid,
-      tenantId: '123' as Guid,
-      roles: [],
-      permissions: [],
-      email: 'admin@admin.com',
-      name: 'admin',
-    },
-  },
-  validateResult = true,
+  options: {
+    context?: RequestContext
+    policy?: RoutePolicy
+    validToken?: boolean
+  } = {},
 ) {
-  const getContext = vi.fn().mockReturnValue(contextData)
-  const ctxAccessor = { getContext } as unknown as IRequestContext<
-    RequestContext,
-    ApplicationRegistry<unknown>
-  >
-
-  const validate = vi.fn().mockResolvedValue(validateResult)
+  const getContext = vi.fn().mockReturnValue(options.context)
+  const contextAccessor = {
+    getContext,
+  } as unknown as IRequestContext<RequestContext, XenoRegistry>
+  const validate = vi.fn().mockResolvedValue(options.validToken ?? true)
   const csrfTokenService = { validate } as unknown as ICsrfTokenService
+  const checkRoutePolicy = vi.fn().mockReturnValue(options.policy ?? {})
+  const getRouteMatcher = vi.fn(() => ({ checkRoutePolicy }))
+  const middleware = new CsrfMiddleware(contextAccessor, csrfTokenService, getRouteMatcher)
 
-  const middleware = new CsrfMiddleware(ctxAccessor, csrfTokenService)
-
-  return { middleware, validate, getContext }
+  return { middleware, getContext, validate, getRouteMatcher, checkRoutePolicy }
 }
 
 describe('CsrfMiddleware', () => {
-  beforeEach(() => vi.restoreAllMocks())
+  beforeEach(() => vi.clearAllMocks())
 
-  it('allows safe methods (GET) without checking CSRF tokens', async () => {
-    const { middleware, validate } = makeMiddleware('GET', undefined)
-    const next = vi.fn().mockResolvedValue({ status: 200, ok: true, data: {} })
+  it('passes safe methods through without resolving context or route policy', async () => {
+    const { middleware, getContext, validate, getRouteMatcher } = makeMiddleware()
+    const nextResult = makeSuccessResponse()
+    const next = vi.fn().mockResolvedValue(nextResult)
 
-    const response = await middleware.execute(transport.req, transport.res, next)
+    const result = await middleware.execute(makeRequest('GET'), next)
 
-    expect(response.ok).toBe(true)
+    expect(result).toBe(nextResult)
     expect(next).toHaveBeenCalledOnce()
+    expect(getContext).not.toHaveBeenCalled()
     expect(validate).not.toHaveBeenCalled()
+    expect(getRouteMatcher).not.toHaveBeenCalled()
   })
 
-  it('allows state-changing requests when tokens match and are valid', async () => {
-    const { middleware, validate } = makeMiddleware(
-      'POST',
-      {
-        network: {
-          csrf: 'valid-token',
-          csrfCookie: 'valid-token',
-          formatIndicator: 'application/json',
-        } as unknown as NetworkContext,
-        identity: {
-          userId: 'user-123' as Guid,
-          tenantId: '123' as Guid,
-          roles: [],
-          permissions: [],
-          email: 'admin@admin.com',
-          name: 'admin',
-        },
-      },
-      true,
-    )
-    const next = vi.fn().mockResolvedValue({ status: 201, ok: true, data: {} })
+  it('allows a route that explicitly disables CSRF validation', async () => {
+    const { middleware, getContext, validate, checkRoutePolicy } = makeMiddleware({
+      policy: { withCsrf: true },
+    })
+    const nextResult = makeSuccessResponse()
+    const next = vi.fn().mockResolvedValue(nextResult)
 
-    const req = {
-      path,
-      method: 'POST',
-      headers,
-    } as unknown as ExtendedRequest
-    const response = await middleware.execute(req, transport.res, next)
+    const result = await middleware.execute(makeRequest('post'), next)
 
-    expect(response.ok).toBe(true)
+    expect(result).toBe(nextResult)
+    expect(checkRoutePolicy).toHaveBeenCalledWith(path, 'POST')
+    expect(getContext).not.toHaveBeenCalled()
+    expect(validate).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledOnce()
-    expect(validate).toHaveBeenCalledWith('valid-token', 'user-123')
   })
 
-  it('returns 403 when headerToken or cookieToken is missing', async () => {
-    const { middleware } = makeMiddleware('POST', {
-      network: {
-        csrf: 'valid-token',
-        csrfCookie: undefined,
+  it('validates matching tokens for state-changing requests', async () => {
+    const { middleware, validate, checkRoutePolicy } = makeMiddleware({
+      context: makeContext({
+        csrf: 'token',
+        csrfCookie: 'token',
+        userId: 'user-1',
         formatIndicator: 'application/json',
-      } as unknown as NetworkContext,
-      identity: {
-        userId: 'user-123' as Guid,
-        tenantId: '123' as Guid,
-        roles: [],
-        permissions: [],
-        email: 'admin@admin.com',
-        name: 'admin',
-      },
+      }),
+      policy: { withCsrf: false },
+    })
+    const nextResult = makeSuccessResponse()
+    const next = vi.fn().mockResolvedValue(nextResult)
+
+    const result = await middleware.execute(makeRequest('PATCH'), next)
+
+    expect(result).toBe(nextResult)
+    expect(checkRoutePolicy).toHaveBeenCalledWith(path, 'PATCH')
+    expect(validate).toHaveBeenCalledWith('token', 'user-1')
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('returns forbidden when the header token is missing', async () => {
+    const { middleware, validate } = makeMiddleware({
+      context: makeContext({ csrfCookie: 'token', userId: 'user-1' }),
     })
     const next = vi.fn()
 
-    const req = {
-      path,
-      method: 'POST',
-      headers,
-    } as unknown as ExtendedRequest
-    const response = await middleware.execute(req, transport.res, next)
+    const response = await middleware.execute(makeRequest('POST'), next)
 
     expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
     expect(response.ok).toBe(false)
-    expect(next).not.toHaveBeenCalled()
-
-    const data = response.data as { error: { code: string; details: string } }
-    expect(data.error.code).toBe(ERROR_CODES.FORBIDDEN)
-    expect(data.error.details).toBe('CSRF token missing')
-  })
-
-  it('returns 403 when headerToken and cookieToken do not match', async () => {
-    const { middleware } = makeMiddleware('POST', {
-      network: {
-        csrf: 'token-abc',
-        csrfCookie: 'token-xyz',
-        formatIndicator: 'application/json',
-      } as unknown as NetworkContext,
-      identity: {
-        userId: 'user-123' as Guid,
-        tenantId: '123' as Guid,
-        roles: [],
-        permissions: [],
-        email: 'admin@admin.com',
-        name: 'admin',
-      },
+    expect(response.data).toMatchObject({
+      error: { code: ERROR_CODES.FORBIDDEN, details: 'CSRF token missing', path },
     })
-    const next = vi.fn()
-
-    const req = {
-      path,
-      method: 'POST',
-      headers,
-    } as unknown as ExtendedRequest
-    const response = await middleware.execute(req, transport.res, next)
-
-    expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
-    expect(response.ok).toBe(false)
-    expect(next).not.toHaveBeenCalled()
-
-    const data = response.data as { error: { details: string } }
-    expect(data.error.details).toBe('CSRF token mismatch')
-  })
-
-  it('returns 403 when userId is missing in the identity context', async () => {
-    const { middleware, validate } = makeMiddleware('POST', {
-      network: {
-        csrf: 'valid-token',
-        csrfCookie: undefined,
-        formatIndicator: 'application/json',
-      } as unknown as NetworkContext,
-      identity: {
-        userId: 'user-123' as Guid,
-        tenantId: '123' as Guid,
-        roles: [],
-        permissions: [],
-        email: 'admin@admin.com',
-        name: 'admin',
-      },
-    })
-    const next = vi.fn()
-    const req = {
-      path,
-      method: 'POST',
-      headers,
-    } as unknown as ExtendedRequest
-    const response = await middleware.execute(req, transport.res, next)
-
-    expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
-    expect(response.ok).toBe(false)
-    expect(next).not.toHaveBeenCalled()
+    expect(response.headers).toEqual({ 'Content-Type': ['application/json'] })
     expect(validate).not.toHaveBeenCalled()
-
-    const data = response.data as { error: { details: string } }
-    expect(data.error.details).toBe('CSRF token missing')
+    expect(next).not.toHaveBeenCalled()
   })
 
-  it('returns 403 when csrfTokenService validation fails', async () => {
-    const { middleware, validate } = makeMiddleware(
-      'POST',
-      {
-        network: {
-          csrf: 'valid-token',
-          csrfCookie: 'valid-token',
-          formatIndicator: 'application/json',
-        } as unknown as NetworkContext,
-        identity: {
-          userId: 'user-123' as Guid,
-          tenantId: '123' as Guid,
-          roles: [],
-          permissions: [],
-          email: 'admin@admin.com',
-          name: 'admin',
-        },
-      },
-      false,
-    ) // validate returns false
+  it('returns forbidden when the cookie token is missing', async () => {
+    const { middleware, validate } = makeMiddleware({
+      context: makeContext({ csrf: 'token', userId: 'user-1' }),
+    })
     const next = vi.fn()
-    const req = {
-      path,
-      method: 'POST',
-      headers,
-    } as unknown as ExtendedRequest
-    const response = await middleware.execute(req, transport.res, next)
+
+    const response = await middleware.execute(makeRequest('DELETE'), next)
 
     expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
-    expect(response.ok).toBe(false)
+    expect(response.data).toMatchObject({
+      error: { details: 'CSRF token missing', path },
+    })
+    expect(validate).not.toHaveBeenCalled()
     expect(next).not.toHaveBeenCalled()
-    expect(validate).toHaveBeenCalledOnce()
+  })
 
-    const data = response.data as { error: { details: string } }
-    expect(data.error.details).toBe('CSRF token invalid')
+  it('returns forbidden when header and cookie tokens do not match', async () => {
+    const { middleware, validate } = makeMiddleware({
+      context: makeContext({ csrf: 'header-token', csrfCookie: 'cookie-token', userId: 'user-1' }),
+    })
+    const next = vi.fn()
+
+    const response = await middleware.execute(makeRequest('PUT'), next)
+
+    expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
+    expect(response.data).toMatchObject({
+      error: { details: 'CSRF token mismatch', path },
+    })
+    expect(validate).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('rejects matching tokens when the user identity is missing', async () => {
+    const { middleware, validate } = makeMiddleware({
+      context: makeContext({ csrf: 'token', csrfCookie: 'token' }),
+    })
+    const next = vi.fn()
+
+    const response = await middleware.execute(makeRequest('POST'), next)
+
+    expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
+    expect(response.data).toMatchObject({
+      error: { details: 'CSRF token invalid', path },
+    })
+    expect(validate).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('rejects matching tokens when token validation fails', async () => {
+    const { middleware, validate } = makeMiddleware({
+      context: makeContext({
+        csrf: 'token',
+        csrfCookie: 'token',
+        userId: 'user-1',
+        formatIndicator: 'application/json',
+      }),
+      validToken: false,
+    })
+    const next = vi.fn()
+
+    const response = await middleware.execute(makeRequest('POST'), next)
+
+    expect(response.status).toBe(STATUS_CODES.FORBIDDEN)
+    expect(response.data).toMatchObject({
+      error: { details: 'CSRF token invalid', path },
+    })
+    expect(validate).toHaveBeenCalledWith('token', 'user-1')
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('uses fallback response identifiers when request context is missing', async () => {
+    const { middleware } = makeMiddleware()
+
+    const response = await middleware.execute(makeRequest('POST'), vi.fn())
+
+    expect(response.data).toMatchObject({
+      correlationId: 'generated-id',
+      requestId: 'generated-id',
+      spanId: 'generated-id',
+      error: { details: 'CSRF token missing' },
+    })
+  })
+
+  it('passes other methods through after state-changing validation is not required', async () => {
+    const { middleware, getRouteMatcher, getContext, validate } = makeMiddleware()
+    const nextResult = makeSuccessResponse()
+    const next = vi.fn().mockResolvedValue(nextResult)
+
+    const result = await middleware.execute(makeRequest('OPTIONS'), next)
+
+    expect(result).toBe(nextResult)
+    expect(next).toHaveBeenCalledOnce()
+    expect(getRouteMatcher).not.toHaveBeenCalled()
+    expect(getContext).not.toHaveBeenCalled()
+    expect(validate).not.toHaveBeenCalled()
   })
 })

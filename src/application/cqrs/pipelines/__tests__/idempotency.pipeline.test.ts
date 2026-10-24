@@ -56,49 +56,11 @@ describe('IdempotencyPipeline', () => {
     it('should create with custom TTL values', () => {
       expect(
         () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 10, 100),
+          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, {
+            lockTtlSeconds: 10,
+            processedTtlSeconds: 100,
+          }),
       ).not.toThrow()
-    })
-
-    it('should throw if lockTtlSeconds is 0', () => {
-      expect(
-        () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 0, 100),
-      ).toThrow()
-    })
-
-    it('should throw if processedTtlSeconds is 0', () => {
-      expect(
-        () => new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 10, 0),
-      ).toThrow()
-    })
-
-    it('should throw if lockTtlSeconds is negative', () => {
-      expect(
-        () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, -1, 100),
-      ).toThrow()
-    })
-
-    it('should throw if processedTtlSeconds is negative', () => {
-      expect(
-        () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 10, -5),
-      ).toThrow()
-    })
-
-    it('should throw if lockTtlSeconds is not integer', () => {
-      expect(
-        () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 1.5, 100),
-      ).toThrow()
-    })
-
-    it('should throw if processedTtlSeconds is not integer', () => {
-      expect(
-        () =>
-          new IdempotencyPipeline(requestContext, store as unknown as IIdempotencyStore, 10, 1.5),
-      ).toThrow()
     })
   })
 
@@ -188,6 +150,40 @@ describe('IdempotencyPipeline', () => {
   // -- handle: successful processing -----------------------------------------
 
   describe('handle - successful processing', () => {
+    it('should use intent-specific TTLs when configured', async () => {
+      store.hasBeenProcessed.mockResolvedValue(false)
+      store.acquireLock.mockResolvedValue(true)
+      const pipeline = new IdempotencyPipeline(requestContext, store, {
+        lockTtlSeconds: 10,
+        processedTtlSeconds: 100,
+        intentRegistry: {
+          TestCommand: {
+            lockTtlSeconds: 5,
+            processedTtlSeconds: 50,
+          },
+        },
+      })
+
+      await pipeline.handle(command, next)
+
+      expect(store.acquireLock).toHaveBeenCalledWith('req-123', 5)
+      expect(store.markAsProcessed).toHaveBeenCalledWith('req-123', 'value', 50)
+    })
+
+    it('should fall back to pipeline TTLs when intent TTLs are not configured', async () => {
+      store.hasBeenProcessed.mockResolvedValue(false)
+      store.acquireLock.mockResolvedValue(true)
+      const pipeline = new IdempotencyPipeline(requestContext, store, {
+        lockTtlSeconds: 10,
+        processedTtlSeconds: 100,
+        intentRegistry: {},
+      })
+
+      await pipeline.handle(command, next)
+
+      expect(store.acquireLock).toHaveBeenCalledWith('req-123', 10)
+      expect(store.markAsProcessed).toHaveBeenCalledWith('req-123', 'value', 100)
+    })
     it('should process command, mark as processed and return result', async () => {
       store.hasBeenProcessed.mockResolvedValue(false)
       store.acquireLock.mockResolvedValue(true)

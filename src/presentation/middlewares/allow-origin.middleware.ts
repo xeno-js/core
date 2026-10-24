@@ -1,20 +1,23 @@
 import type {
-  ExtendedRequest,
   IContextAccessor,
   ILogger,
   IMiddleware,
+  IRoutePolicyCheck,
+  Optional,
   RequestContext,
   ResponseDto,
+  RoutePolicy,
+  XenoRequest,
 } from '@xeno-js/shared'
+import type { IAllowOrigin } from '@xeno-js/shared'
 import {
   ERROR_CODE_MESSAGES,
   ERROR_CODES,
+  Guards,
   GuidHelper,
   HttpHelper,
   STATUS_CODES,
 } from '@xeno-js/shared'
-
-import type { IAllowOrigin } from '@/domain'
 
 /**
  * @description A middleware that checks if the origin of the request is allowed.
@@ -29,17 +32,21 @@ export class AllowOriginMiddleware implements IMiddleware {
     private readonly _allowOrigin: IAllowOrigin,
     private readonly _requestContext: IContextAccessor<RequestContext>,
     private readonly _logger: ILogger,
+    private readonly _getRouteMatcher: () => IRoutePolicyCheck,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const { network, tracing } = this._requestContext.getContext() ?? {}
     const origin = network?.origin
 
-    if (!this._allowOrigin.isAllowed(origin)) {
+    const policy = this._getRouteMatcher().checkRoutePolicy(req.path, req.method)
+
+    const isAllowed = this.checkOrigin(policy, origin)
+
+    if (!isAllowed) {
       this._logger.warn(`Access denied by AllowOrigin policy for origin: ${origin ?? 'unknown'}`)
 
       return HttpHelper.error(
@@ -61,5 +68,13 @@ export class AllowOriginMiddleware implements IMiddleware {
     }
 
     return next()
+  }
+
+  private checkOrigin(policy: RoutePolicy, origin: Optional<string>): boolean {
+    if (Guards.isDefined(policy.allowOrigins)) {
+      return policy.allowOrigins.includes('*') || policy.allowOrigins.includes(origin ?? '')
+    } else {
+      return this._allowOrigin.isAllowed(origin)
+    }
   }
 }

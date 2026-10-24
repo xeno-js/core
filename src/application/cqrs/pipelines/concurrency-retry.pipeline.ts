@@ -1,11 +1,12 @@
-import type { Delegate, ICommand, IPipelineBehavior, ResultType } from '@xeno-js/shared'
-import type { Optional } from '@xeno-js/shared'
-import { AppError, Result } from '@xeno-js/shared'
+/* eslint-disable @typescript-eslint/naming-convention */
+import type { Delegate, ICommand, IPipelineBehavior, Optional, ResultType } from '@xeno-js/shared'
+import type { ConcurrencyOptions } from '@xeno-js/shared'
 import {
+  AppError,
   DEFAULT_CONCURRENCY,
   ERROR_CODES,
-  Guards,
   PromiseHelper,
+  Result,
   STATUS_CODES,
 } from '@xeno-js/shared'
 
@@ -21,61 +22,20 @@ export class ConcurrencyRetryPipeline<
   TInput extends ICommand<TResult>,
   TResult,
 > implements IPipelineBehavior<TInput, TResult> {
-  /**
-   * @description Configuration for the retry mechanism, including the base delay and maximum jitter for calculating the delay between retry attempts, as well as the maximum number of retry attempts allowed before giving up and returning a failed Result with an AppError indicating the concurrency conflict.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private readonly _delayConfig: { baseDelayMs: number; maxJitterMs: number }
-  /**
-   * @description Maximum number of retry attempts for handling concurrency conflicts. If the number of attempts exceeds this value, the pipeline will return a failed Result with an AppError indicating that the maximum retry attempts have been exceeded due to concurrency conflicts.
-   *
-   * @author Xeno
-   * @version 1.0.0
-   * @since 2025-09-30
-   * @link https://github.com/xeno-js/xeno-js
-   */
-  private readonly _maxRetries: number
+  private static readonly DEFAULT_MAX_RETRIES = DEFAULT_CONCURRENCY.MAX_RETRIES
+  private static readonly DEFAULT_BASE_DELAY_MS = DEFAULT_CONCURRENCY.BASE_DELAY
+  private static readonly DEFAULT_MAX_JITTER_MS = DEFAULT_CONCURRENCY.MAX_JITTER
 
   /**
    * @description Constructs a new instance of the ConcurrencyRetryBehavior class, which takes an optional maximum number of retry attempts and an optional delay configuration for the exponential backoff strategy. The delay configuration includes a base delay in milliseconds and a maximum jitter in milliseconds to be added to the base delay for each retry attempt. The constructor validates the input parameters to ensure that they are positive integers and throws an error if they are not.
-   * @param maxRetries An optional parameter that specifies the maximum number of retry attempts for handling concurrency conflicts. The default value is DEFAULT_CONCURRENCY.MAX_RETRIES. It must be a positive integer.
-   * @param delayConfig An optional parameter that specifies the delay configuration for the exponential backoff strategy, including a base delay in milliseconds and a maximum jitter in milliseconds. The default values are DEFAULT_CONCURRENCY.BASE_DELAY for the base delay and DEFAULT_CONCURRENCY.MAX_JITTER for the maximum jitter. Both values must be non-negative integers.
-   * @throws Will throw an error if the provided maxRetries value is not a positive integer or if the provided delayConfig values are not valid non-negative integers.
+   * @param _options Optional configuration options for the behavior, including the maximum number of retry attempts and the delay configuration for the exponential backoff strategy.
    *
    * @author Xeno
    * @version 1.0.0
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
-  constructor(
-    maxRetries: number = DEFAULT_CONCURRENCY.MAX_RETRIES,
-    delayConfig: Optional<{ baseDelayMs: number; maxJitterMs: number }> = {
-      baseDelayMs: DEFAULT_CONCURRENCY.BASE_DELAY,
-      maxJitterMs: DEFAULT_CONCURRENCY.MAX_JITTER,
-    },
-  ) {
-    const values = [maxRetries, delayConfig?.baseDelayMs, delayConfig?.maxJitterMs]
-    const errorMessages = [
-      `Invalid maxRetries value: ${maxRetries}. It must be a positive integer.`,
-      `Invalid baseDelayMs value: ${delayConfig.baseDelayMs}. It must be a non-negative integer.`,
-      `Invalid maxJitterMs value: ${delayConfig.maxJitterMs}. It must be a non-negative integer.`,
-    ]
-
-    values.forEach((value, index) => {
-      Guards.throwIfNotInteger(value, errorMessages[index])
-      Guards.throwIfNegative(value, errorMessages[index])
-      if (index === 0 && value === 0) {
-        throw new Error(errorMessages[index])
-      }
-    })
-
-    this._maxRetries = maxRetries
-    this._delayConfig = delayConfig
-  }
+  constructor(private readonly _options: Optional<ConcurrencyOptions> = undefined) {}
 
   /**
    * @description Handles the request by implementing a retry mechanism for concurrency conflicts. It retries the request up to the maximum number of attempts with an exponential backoff strategy and added jitter. If the request succeeds or fails with an error that is not a concurrency conflict, it returns the result immediately. If the maximum number of retry attempts is exceeded due to concurrency conflicts, it returns a failed Result with an AppError indicating the concurrency conflict.
@@ -89,6 +49,23 @@ export class ConcurrencyRetryPipeline<
    * @link https://github.com/xeno-js/xeno-js
    */
   public async handle(request: TInput, next: Delegate<TResult>): Promise<ResultType<TResult>> {
+    const intentConfig = this._options?.intentRegistry?.[request.intent]
+
+    const maxRetries =
+      intentConfig?.maxRetries ??
+      this._options?.maxRetries ??
+      ConcurrencyRetryPipeline.DEFAULT_MAX_RETRIES
+
+    const baseDelay =
+      intentConfig?.delayConfig?.baseDelayMs ??
+      this._options?.delayConfig?.baseDelayMs ??
+      ConcurrencyRetryPipeline.DEFAULT_BASE_DELAY_MS
+
+    const jitter =
+      intentConfig?.delayConfig?.maxJitterMs ??
+      this._options?.delayConfig?.maxJitterMs ??
+      ConcurrencyRetryPipeline.DEFAULT_MAX_JITTER_MS
+
     let attempts = 0
 
     while (true) {
@@ -98,17 +75,15 @@ export class ConcurrencyRetryPipeline<
 
       if (result.isOk() || !this.isConcurrencyError(result.getErrorOrThrow())) return result
 
-      if (attempts >= this._maxRetries)
+      if (attempts >= maxRetries)
         return Result.fail(
           AppError.conflict(
             request.intent,
-            `Maximum retry attempts (${this._maxRetries}) exceeded due to concurrency conflicts.`,
+            `Maximum retry attempts (${maxRetries}) exceeded due to concurrency conflicts.`,
           ),
         )
 
-      const { baseDelayMs, maxJitterMs } = this._delayConfig
-
-      await PromiseHelper.delayWithJitter(baseDelayMs, maxJitterMs)
+      await PromiseHelper.delayWithJitter(baseDelay, jitter)
     }
   }
 

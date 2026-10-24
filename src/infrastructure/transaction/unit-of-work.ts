@@ -1,8 +1,8 @@
-import type { IDisposable, ITransactionState, IUnitOfWork } from '@xeno-js/shared'
+import type { AggregateRoot, IDisposable, ITransactionState, IUnitOfWork } from '@xeno-js/shared'
+import type { ITransactionalDb } from '@xeno-js/shared'
 import { AppError } from '@xeno-js/shared'
 import { Guards, type Optional } from '@xeno-js/shared'
 
-import type { ITransactionalDb } from '@/domain'
 /**
  * @file unit-of-work.ts
  * @description This file contains the implementation of the Unit of Work pattern.
@@ -12,7 +12,7 @@ import type { ITransactionalDb } from '@/domain'
  * @since 2025-09-30
  * @link https://github.com/xeno-js/xeno-js
  */
-export class UnitOfWork<TTransaction = unknown> implements IUnitOfWork, IDisposable {
+export class UnitOfWork<TTransaction = unknown> implements IUnitOfWork<TTransaction>, IDisposable {
   /**
    * Creates an instance of UnitOfWork.
    * @param _dbContext - The database context used for managing transactions.
@@ -28,13 +28,17 @@ export class UnitOfWork<TTransaction = unknown> implements IUnitOfWork, IDisposa
     private readonly _ttx: ITransactionState<TTransaction>,
   ) {}
 
-  async runInTransaction<T>(callback: () => Promise<T>, signal: Optional<AbortSignal>): Promise<T> {
+  async runInTransaction<T, TProps, TEvent = unknown, TId extends string = string>(
+    callback: (tx: TTransaction) => Promise<T>,
+    aggregates?: AggregateRoot<TProps, TEvent, TId> | AggregateRoot<TProps, TEvent, TId>[],
+    signal?: Optional<AbortSignal>,
+  ): Promise<T> {
     AppError.throwIfAborted(signal, 'UnitOfWork.runInTransaction')
 
     return this._dbContext.transaction(async (tx) => {
       this._ttx.state = tx
       try {
-        const result = await callback()
+        const result = await callback(this._ttx.state)
         return result
       } finally {
         this._ttx.state = null

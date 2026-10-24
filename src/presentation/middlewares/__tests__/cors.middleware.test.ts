@@ -1,153 +1,185 @@
-import type {
-  ExtendedRequest,
-  IContextAccessor,
-  RequestContext,
-  ResponseDto,
-} from '@xeno-js/shared'
+﻿import type { IContextAccessor, RequestContext, RoutePolicy, XenoRequest } from '@xeno-js/shared'
+import type { ResponseDto } from '@xeno-js/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CORSMiddleware } from '../cors.middleware'
 
-function makeMiddleware(contextData?: RequestContext, withCredentials: 'true' | 'false' = 'false') {
-  const getContext = vi.fn().mockReturnValue(contextData)
-  const requestContext = { getContext } as unknown as IContextAccessor<RequestContext>
-  const middleware = new CORSMiddleware(requestContext, withCredentials)
+vi.mock('@xeno-js/shared', () => ({
+  Guards: {
+    isDefined: (value: unknown) => value !== undefined && value !== null,
+  },
+}))
 
-  return { middleware, getContext }
+function makeMiddleware(
+  options: {
+    contextData?: Partial<RequestContext>
+    policy?: RoutePolicy
+    withCredentials?: 'true' | 'false'
+  } = {},
+) {
+  const getContext = vi.fn().mockReturnValue(options.contextData)
+  const requestContext = { getContext } as unknown as IContextAccessor<RequestContext>
+  const checkRoutePolicy = vi.fn().mockReturnValue(options.policy ?? {})
+  const getRouteMatcher = vi.fn(() => ({ checkRoutePolicy }))
+  const middleware = new CORSMiddleware(
+    requestContext,
+    getRouteMatcher,
+    options.withCredentials ?? 'false',
+  )
+
+  return { middleware, getContext, getRouteMatcher, checkRoutePolicy }
+}
+
+function makeRequest(path = '/api/test', method = 'GET'): XenoRequest {
+  return { path, method } as unknown as XenoRequest
+}
+
+function makeResponse(headers?: ResponseDto['headers']): ResponseDto<{ ok: true }> {
+  return {
+    status: 200,
+    ok: true,
+    data: { success: true, data: { ok: true }, meta: {} },
+    headers,
+  } as unknown as ResponseDto<{ ok: true }>
 }
 
 describe('CORSMiddleware', () => {
-  beforeEach(() => vi.restoreAllMocks())
+  beforeEach(() => vi.clearAllMocks())
 
-  it('passes the response through unchanged when the request has no origin and no headers exist', async () => {
-    const { middleware, getContext } = makeMiddleware({
-      network: {
-        requestId: '11111111-1111-4111-8111-111111111111',
-        clientIp: '127.0.0.1',
-        userAgent: 'vitest',
-        formatIndicator: 'application/json',
-        path: '/api/test',
-        csrf: 'csrf-token',
-        csrfCookie: 'cookie-token',
-        origin: undefined,
-      },
-    } as unknown as RequestContext)
-    const response = {
-      status: 200,
-      ok: true,
-      headers: undefined,
-    } as unknown as ResponseDto<{ ok: true }>
+  it('returns the original response when no origin or wildcard is configured', async () => {
+    const { middleware, getContext, getRouteMatcher, checkRoutePolicy } = makeMiddleware()
+    const response = makeResponse()
     const next = vi.fn().mockResolvedValue(response)
 
-    const result = await middleware.execute(
-      { path: '/api/test', method: 'GET' } as unknown as ExtendedRequest,
-      {} as Response,
-      next,
-    )
+    const result = await middleware.execute(makeRequest('/api/no-origin', 'POST'), next)
 
     expect(result).toBe(response)
+    expect(result.headers).toBeUndefined()
     expect(getContext).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledOnce()
-    expect(result.headers).toBeUndefined()
+    expect(getRouteMatcher).toHaveBeenCalledOnce()
+    expect(checkRoutePolicy).toHaveBeenCalledWith('/api/no-origin', 'POST')
   })
 
-  it('keeps the original headers untouched when the request has no origin', async () => {
+  it('preserves existing headers when there is no origin and the policy does not allow a wildcard', async () => {
     const { middleware } = makeMiddleware({
-      network: {
-        requestId: '22222222-2222-4222-8222-222222222222',
-        clientIp: '127.0.0.1',
-        userAgent: 'vitest',
-        formatIndicator: 'application/json',
-        path: '/api/test',
-        csrf: 'csrf-token',
-        csrfCookie: 'cookie-token',
-        origin: undefined,
-      },
-    } as unknown as RequestContext)
-    const response = {
-      status: 200,
-      ok: true,
-      headers: { 'Content-Type': ['application/json'] },
-    } as unknown as ResponseDto<{ ok: true }>
+      contextData: { network: { origin: undefined } } as Partial<RequestContext>,
+      policy: { allowOrigins: ['https://app.example.com'] },
+    })
+    const response = makeResponse({ 'Content-Type': ['application/json'] })
+    const originalHeaders = response.headers
     const next = vi.fn().mockResolvedValue(response)
 
-    const result = await middleware.execute(
-      { path: '/api/test', method: 'GET' } as unknown as ExtendedRequest,
-      {} as Response,
-      next,
-    )
+    const result = await middleware.execute(makeRequest(), next)
 
     expect(result).toBe(response)
+    expect(result.headers).toBe(originalHeaders)
     expect(result.headers).toEqual({ 'Content-Type': ['application/json'] })
   })
 
-  it('adds CORS headers when the request origin is available', async () => {
+  it('adds CORS headers using the request origin and configured credentials fallback', async () => {
     const { middleware } = makeMiddleware({
-      network: {
-        requestId: '33333333-3333-4333-8333-333333333333',
-        clientIp: '127.0.0.1',
-        userAgent: 'vitest',
-        formatIndicator: 'application/json',
-        path: '/api/test',
-        csrf: 'csrf-token',
-        csrfCookie: 'cookie-token',
-        origin: 'https://app.example.com',
-      },
-    } as unknown as RequestContext)
-    const response = {
-      status: 200,
-      ok: true,
-      headers: { 'Content-Type': ['application/json'] },
-    } as unknown as ResponseDto<{ ok: true }>
+      contextData: {
+        network: { origin: 'https://app.example.com' },
+      } as Partial<RequestContext>,
+      withCredentials: 'true',
+    })
+    const response = makeResponse({ 'Content-Type': ['application/json'] })
     const next = vi.fn().mockResolvedValue(response)
 
-    const result = await middleware.execute(
-      { path: '/api/test', method: 'GET' } as unknown as ExtendedRequest,
-      {} as Response,
-      next,
-    )
+    const result = await middleware.execute(makeRequest(), next)
 
     expect(result).toBe(response)
-    expect(result.headers).toMatchObject({
+    expect(result.headers).toEqual({
       'Content-Type': ['application/json'],
       'Access-Control-Allow-Origin': 'https://app.example.com',
+      'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
+    })
+  })
+
+  it('uses the route credentials setting when explicitly enabled', async () => {
+    const { middleware } = makeMiddleware({
+      contextData: {
+        network: { origin: 'https://app.example.com' },
+      } as Partial<RequestContext>,
+      policy: { withCredentials: true },
+    })
+    const response = makeResponse()
+    const next = vi.fn().mockResolvedValue(response)
+
+    await middleware.execute(makeRequest(), next)
+
+    expect(response.headers).toMatchObject({
+      'Access-Control-Allow-Origin': 'https://app.example.com',
+      'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
+    })
+  })
+
+  it('uses wildcard origin when wildcard access is allowed without credentials', async () => {
+    const { middleware } = makeMiddleware({ policy: { allowOrigins: ['*'] } })
+    const response = makeResponse()
+    const next = vi.fn().mockResolvedValue(response)
+
+    await middleware.execute(makeRequest(), next)
+
+    expect(response.headers).toEqual({
+      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Credentials': 'false',
       'Vary': 'Origin',
     })
   })
 
-  it('supports credentials enabled mode', async () => {
-    const { middleware } = makeMiddleware(
-      {
-        network: {
-          requestId: '44444444-4444-4444-8444-444444444444',
-          clientIp: '127.0.0.1',
-          userAgent: 'vitest',
-          formatIndicator: 'application/json',
-          path: '/api/test',
-          csrf: 'csrf-token',
-          csrfCookie: 'cookie-token',
-          origin: 'https://app.example.com',
-        },
-      } as unknown as RequestContext,
-      'true',
-    )
-    const response = {
-      status: 200,
-      ok: true,
-      headers: undefined,
-    } as unknown as ResponseDto<{ ok: true }>
+  it('uses the route credentials setting when explicitly disabled', async () => {
+    const { middleware } = makeMiddleware({
+      contextData: {
+        network: { origin: 'https://app.example.com' },
+      } as Partial<RequestContext>,
+      policy: { withCredentials: false, allowOrigins: ['*'] },
+      withCredentials: 'true',
+    })
+    const response = makeResponse()
     const next = vi.fn().mockResolvedValue(response)
 
-    const result = await middleware.execute(
-      { path: '/api/test', method: 'GET' } as unknown as ExtendedRequest,
-      {} as Response,
-      next,
-    )
+    await middleware.execute(makeRequest(), next)
 
-    expect(result.headers).toMatchObject({
+    expect(response.headers).toMatchObject({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': 'false',
+      'Vary': 'Origin',
+    })
+  })
+
+  it('does not use wildcard origin when credentials are enabled', async () => {
+    const { middleware } = makeMiddleware({
+      contextData: {
+        network: { origin: 'https://app.example.com' },
+      } as Partial<RequestContext>,
+      policy: { allowOrigins: ['*'], withCredentials: true },
+    })
+    const response = makeResponse()
+    const next = vi.fn().mockResolvedValue(response)
+
+    await middleware.execute(makeRequest(), next)
+
+    expect(response.headers).toMatchObject({
       'Access-Control-Allow-Origin': 'https://app.example.com',
       'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
+    })
+  })
+
+  it('adds headers when wildcard access is allowed without a request context', async () => {
+    const { middleware } = makeMiddleware({ policy: { allowOrigins: ['*'] } })
+    const response = makeResponse()
+    const next = vi.fn().mockResolvedValue(response)
+
+    await middleware.execute(makeRequest(), next)
+
+    expect(response.headers).toEqual({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': 'false',
       'Vary': 'Origin',
     })
   })

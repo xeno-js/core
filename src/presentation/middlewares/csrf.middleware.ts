@@ -1,4 +1,11 @@
-﻿import type { ExtendedRequest, IMiddleware, RequestContext, ResponseDto } from '@xeno-js/shared'
+﻿import type {
+  IMiddleware,
+  IRoutePolicyCheck,
+  RequestContext,
+  ResponseDto,
+  XenoRequest,
+} from '@xeno-js/shared'
+import type { ICsrfTokenService, IRequestContext, XenoRegistry } from '@xeno-js/shared'
 import {
   ERROR_CODE_MESSAGES,
   ERROR_CODES,
@@ -8,26 +15,28 @@ import {
   STATUS_CODES,
 } from '@xeno-js/shared'
 
-import type { ApplicationRegistry, ICsrfTokenService, IRequestContext } from '@/domain'
-
 /**
  * @description The CsrfMiddleware class implements the IMiddleware interface, providing a concrete implementation for handling CSRF token validation. It checks the incoming request for a valid CSRF token and returns an error response if the token is missing or invalid.
  */
 export class CsrfMiddleware implements IMiddleware {
   constructor(
-    private readonly _requestContext: IRequestContext<RequestContext, ApplicationRegistry<unknown>>,
+    private readonly _requestContext: IRequestContext<RequestContext, XenoRegistry>,
     private readonly _csrfTokenService: ICsrfTokenService,
+    private readonly _getRouteMatcher: () => IRoutePolicyCheck,
   ) {}
 
-  public async execute<T, TRes extends Response, TReq extends ExtendedRequest>(
-    req: TReq,
-    _res: TRes,
+  public async execute<T>(
+    req: XenoRequest,
     next: () => Promise<ResponseDto<T>>,
   ): Promise<ResponseDto<T>> {
     const method = req.method.toUpperCase()
     const isStateChanging = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)
 
     if (isStateChanging) {
+      const policy = this._getRouteMatcher().checkRoutePolicy(req.path, method)
+
+      if (Guards.isDefined(policy.withCsrf) && policy.withCsrf) return await next()
+
       const { network, tracing, identity } = this._requestContext.getContext() ?? {}
       const headerToken = network?.csrf
       const cookieToken = network?.csrfCookie
