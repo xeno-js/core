@@ -3,8 +3,7 @@ import { resolve } from 'node:path'
 
 export default defineConfig({
   entry: [
-    'src/index.ts',
-    'src/db.ts',
+    'src/index.ts'
   ],
   format: ['esm', 'cjs'],
   target: 'es2023',
@@ -22,20 +21,7 @@ export default defineConfig({
     }
   },
   external: [
-    '@libsql/client',
-    '@libsql/client/web',
-    '@sentry/node',
-    '@supabase/ssr',
-    '@supabase/supabase-js',
     '@xeno-js/shared',
-    'axios',
-    'cockatiel',
-    'drizzle-orm',
-    'ioredis',
-    'p-limit',
-    'pg',
-    'pino',
-    'postgres',
-    'zod',
+    'p-limit'
   ],
 })
