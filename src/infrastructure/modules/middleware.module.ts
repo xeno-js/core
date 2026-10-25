@@ -220,11 +220,32 @@ export class MiddlewareModule<TRegistry extends XenoRegistry = XenoRegistry> imp
     routePolicyCheck: () => IRoute<TRegistry>,
   ) {
     if (Guards.isDefined(opts.cors?.enablePreflight) && opts.cors?.enablePreflight) {
+      const allowHeaders = Array.from(
+        new Set([
+          'x-csrf-token',
+          'Authorization',
+          'Content-Type',
+          'X-Requested-With',
+          'Accept',
+          'Origin',
+          'referer',
+          'x-correlation-id',
+          'x-request-id',
+          'x-span-id',
+          'x-parent-span-id',
+          'x-return-address',
+          'x-sequence-id',
+          'x-sequence-position',
+          'x-sequence-size',
+          'x-expiration',
+          ...(opts.cors.allowHeaders ?? []),
+        ]),
+      )
       return new OptionsMiddleware(
         requestContext,
         allowMethod(),
         routePolicyCheck,
-        opts.cors?.allowHeaders ?? [],
+        allowHeaders,
         withCredentials,
       )
     }
