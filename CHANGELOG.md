@@ -1,3 +1,10 @@
+## [4.1.1](https://github.com/xeno-js/xeno-js/compare/v4.1.0...v4.1.1) (2026-10-26)
+
+### Bug Fixes
+
+- **csrf:** update withcsrf route policy check logic
+  ([2befa1f](https://github.com/xeno-js/xeno-js/commit/2befa1f6322076c959fc1cbd5da8f90f16d6598e))
+
 # [4.1.0](https://github.com/xeno-js/xeno-js/compare/v4.0.0...v4.1.0) (2026-10-25)
 
 ### Features
