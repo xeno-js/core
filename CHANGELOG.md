@@ -1,3 +1,10 @@
+# [4.1.0](https://github.com/xeno-js/xeno-js/compare/v4.0.0...v4.1.0) (2026-10-25)
+
+### Features
+
+- **core:** include headers in cors preflight defaults
+  ([96d7e94](https://github.com/xeno-js/xeno-js/commit/96d7e94c081525900d6101bd7993837830e9fa8b))
+
 # [4.0.0](https://github.com/xeno-js/xeno-js/compare/v3.0.5...v4.0.0) (2026-10-24)
 
 ## [3.0.5](https://github.com/xeno-js/xeno-js/compare/v3.0.4...v3.0.5) (2026-10-09)

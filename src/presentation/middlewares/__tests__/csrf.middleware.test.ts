@@ -111,7 +111,7 @@ describe('CsrfMiddleware', () => {
 
   it('allows a route that explicitly disables CSRF validation', async () => {
     const { middleware, getContext, validate, checkRoutePolicy } = makeMiddleware({
-      policy: { withCsrf: true },
+      policy: { withCsrf: false },
     })
     const nextResult = makeSuccessResponse()
     const next = vi.fn().mockResolvedValue(nextResult)
@@ -133,7 +133,7 @@ describe('CsrfMiddleware', () => {
         userId: 'user-1',
         formatIndicator: 'application/json',
       }),
-      policy: { withCsrf: false },
+      policy: { withCsrf: true },
     })
     const nextResult = makeSuccessResponse()
     const next = vi.fn().mockResolvedValue(nextResult)

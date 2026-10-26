@@ -35,7 +35,7 @@ export class CsrfMiddleware implements IMiddleware {
     if (isStateChanging) {
       const policy = this._getRouteMatcher().checkRoutePolicy(req.path, method)
 
-      if (Guards.isDefined(policy.withCsrf) && policy.withCsrf) return await next()
+      if (Guards.isDefined(policy.withCsrf) && !policy.withCsrf) return await next()
 
       const { network, tracing, identity } = this._requestContext.getContext() ?? {}
       const headerToken = network?.csrf
