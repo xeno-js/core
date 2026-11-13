@@ -1,3 +1,10 @@
+## [4.1.2](https://github.com/xeno-js/xeno-js/compare/v4.1.1...v4.1.2) (2026-11-13)
+
+### Bug Fixes
+
+- **logger:** adapt context to json stringify
+  ([fc71df5](https://github.com/xeno-js/xeno-js/commit/fc71df530cf7f6aea76399e9abc10e81117edb2b))
+
 ## [4.1.1](https://github.com/xeno-js/xeno-js/compare/v4.1.0...v4.1.1) (2026-10-26)
 
 ### Bug Fixes
