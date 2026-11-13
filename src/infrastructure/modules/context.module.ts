@@ -30,6 +30,8 @@ export class ContextModule<TRegistry extends XenoRegistry = XenoRegistry> implem
     container: IServiceContainer<TRegistry>,
     opts?: IRequestContext<RequestContext, TRegistry>,
   ): Promise<void> {
+    if (container.isRegistered(TOKENS.REQUEST_CONTEXT)) return
+
     const requestContext = await this._getRequestContext(container, opts)
 
     container.addSingleton(TOKENS.REQUEST_CONTEXT, () => requestContext)

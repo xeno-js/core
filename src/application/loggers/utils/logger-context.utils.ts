@@ -1,5 +1,5 @@
-import type { LoggerContext, RequestContext } from '@xeno-js/shared'
-import { HttpHelper, type Optional } from '@xeno-js/shared'
+import type { Optional, RequestContext } from '@xeno-js/shared'
+import { HttpHelper, StringHelper } from '@xeno-js/shared'
 
 /**
  * @description LoggerUtils provides utility functions for working with LoggerContext objects.
@@ -10,8 +10,8 @@ export const LoggerUtils = Object.freeze({
    * @param ctx The RequestContext object to convert.
    * @returns The converted LoggerContext object.
    */
-  toSafeContext(ctx: Optional<RequestContext>): LoggerContext {
-    return {
+  toSafeContext(ctx: Optional<RequestContext>): string {
+    const context = {
       identity: {
         userId: ctx?.identity?.userId,
         tenantId: ctx?.identity?.tenantId,
@@ -30,5 +30,6 @@ export const LoggerUtils = Object.freeze({
       },
       messaging: ctx?.messaging,
     }
+    return StringHelper.safeStringify(context)
   },
 } as const)
