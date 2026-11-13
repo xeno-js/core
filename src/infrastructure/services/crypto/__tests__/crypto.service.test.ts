@@ -9,15 +9,11 @@ describe('EdgeCryptoService', () => {
 
   it('generates a byte array of the requested size using WebCrypto', () => {
     const service = new EdgeCryptoService()
-    const getRandomValuesMock = vi
-      .spyOn(crypto, 'getRandomValues')
-      .mockImplementation(
-        (array: ArrayBufferView<ArrayBufferLike>): ArrayBufferView<ArrayBufferLike> => {
-          const typedArray = array as Uint8Array
-          typedArray.fill(7)
-          return typedArray
-        },
-      )
+    const getRandomValuesMock = vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => {
+      const typedArray = array as Uint8Array
+      typedArray.fill(7)
+      return array
+    })
 
     const result = service.randomBytes(4)
 

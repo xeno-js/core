@@ -1,5 +1,5 @@
-import type { Optional, RequestContext } from '@xeno-js/shared'
-import { HttpHelper, StringHelper } from '@xeno-js/shared'
+import type { Dictionary, Optional, RequestContext } from '@xeno-js/shared'
+import { Guards, HttpHelper, StringHelper } from '@xeno-js/shared'
 
 /**
  * @description LoggerUtils provides utility functions for working with LoggerContext objects.
@@ -10,7 +10,7 @@ export const LoggerUtils = Object.freeze({
    * @param ctx The RequestContext object to convert.
    * @returns The converted LoggerContext object.
    */
-  toSafeContext(ctx: Optional<RequestContext>): string {
+  toSafeContext(ctx: Optional<RequestContext>): Dictionary {
     const context = {
       identity: {
         userId: ctx?.identity?.userId,
@@ -30,6 +30,25 @@ export const LoggerUtils = Object.freeze({
       },
       messaging: ctx?.messaging,
     }
-    return StringHelper.safeStringify(context)
+    return StringHelper.safeStringifyObject(context)
+  },
+
+  toNormalizeError(error: unknown): unknown {
+    if (error instanceof Error) {
+      return {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        cause: error.cause,
+      }
+    }
+    const errorString = Guards.isString(error) ? error : StringHelper.safeStringify(error)
+    const customError = new Error(errorString)
+
+    if (Guards.isObject(error) && Guards.isDefined(error)) {
+      Object.assign(customError, error)
+    }
+
+    return customError
   },
 } as const)
