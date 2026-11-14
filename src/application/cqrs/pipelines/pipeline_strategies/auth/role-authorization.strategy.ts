@@ -27,11 +27,8 @@ export class RoleAuthorizationStrategy extends BaseAuthorizationStrategy<IReques
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
-  constructor(
-    private readonly _policy: IPolicyRegistry,
-    requestContext: IContextAccessor<RequestContext>,
-  ) {
-    super(requestContext)
+  constructor(policy: IPolicyRegistry, requestContext: IContextAccessor<RequestContext>) {
+    super(policy, requestContext)
   }
 
   protected async performAuthorizationCheck(

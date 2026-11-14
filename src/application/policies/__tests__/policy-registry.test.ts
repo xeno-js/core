@@ -85,4 +85,31 @@ describe('PolicyRegistry', () => {
 
     expect(registry.getPolicy(intent)).toEqual(policy2)
   })
+
+  describe('setSuperadminRoles', () => {
+    it('should store the superadmin roles under the superadmin intent', () => {
+      registry.setSuperadminRoles(['ROOT', 'SUPPORT'])
+
+      expect(registry.getPolicy('superadmin')).toEqual({ roles: ['ROOT', 'SUPPORT'] })
+    })
+
+    it('should retrieve superadmin roles regardless of intent key casing', () => {
+      registry.setSuperadminRoles(['ROOT'])
+
+      expect(registry.getPolicy('SUPERADMIN')).toEqual({ roles: ['ROOT'] })
+    })
+
+    it('should support method chaining (fluent interface)', () => {
+      const returnedRegistry = registry.setSuperadminRoles(['ROOT'])
+
+      expect(returnedRegistry).toBe(registry)
+    })
+
+    it('should overwrite previously configured superadmin roles', () => {
+      registry.setSuperadminRoles(['ROOT'])
+      registry.setSuperadminRoles(['OWNER'])
+
+      expect(registry.getPolicy('superadmin')).toEqual({ roles: ['OWNER'] })
+    })
+  })
 })

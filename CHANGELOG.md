@@ -1,3 +1,10 @@
+## [4.1.4](https://github.com/xeno-js/xeno-js/compare/v4.1.3...v4.1.4) (2026-11-14)
+
+### Bug Fixes
+
+- resolved sanitize format indicator
+  ([e6d5651](https://github.com/xeno-js/xeno-js/commit/e6d56519fdea764bb6f782097ce07c01536e61eb))
+
 ## [4.1.3](https://github.com/xeno-js/xeno-js/compare/v4.1.2...v4.1.3) (2026-11-13)
 
 ### Bug Fixes

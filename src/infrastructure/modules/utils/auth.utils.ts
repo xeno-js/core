@@ -46,6 +46,13 @@ export const AuthUtils = Object.freeze({
       const ctxAccessor = container.resolve(TOKENS.CONTEXT_ACCESSOR)
       const Policies = new Set<string>()
 
+      if (Guards.isDefined(opts.superadmin)) {
+        const superadminRoles = Guards.isArray(opts.superadmin)
+          ? opts.superadmin
+          : [opts.superadmin]
+        registryInstance.setSuperadminRoles(superadminRoles)
+      }
+
       for (const [intent, policy] of Object.entries(policyRegistry)) {
         const intentLower = intent.toLowerCase()
         registryInstance.addPolicy(intentLower, policy)

@@ -31,8 +31,11 @@ const makePolicy = (overrides?: Partial<AuthPolicy>): AuthPolicy => ({
 
 const makePolicyRegistry = (
   policy?: AuthPolicy,
+  superadminPolicy?: AuthPolicy,
 ): { registry: IPolicyRegistry; getPolicyMock: Mock } => {
-  const getPolicyMock = vi.fn().mockReturnValue(policy)
+  const getPolicyMock = vi.fn((intent: string) =>
+    intent === 'superadmin' ? superadminPolicy : policy,
+  )
   const registry = {
     getPolicy: getPolicyMock,
     addPolicy: vi.fn(),
@@ -184,6 +187,38 @@ describe('RoleAuthorizationStrategy', () => {
 
       await strategy.execute(request)
 
+      expect(getPolicyMock).toHaveBeenCalledTimes(2)
+      expect(getPolicyMock).toHaveBeenNthCalledWith(1, 'superadmin')
+      expect(getPolicyMock).toHaveBeenNthCalledWith(2, 'TestCommand')
+    })
+  })
+
+  describe('execute — superadmin bypass', () => {
+    it('returns ok when user has a superadmin role not listed in the command roles', async () => {
+      const requestContext = makeRequestContext({ roles: ['root'] })
+      const { registry } = makePolicyRegistry(
+        makePolicy({ permissions: ['read'], roles: ['admin'] }),
+        makePolicy({ roles: ['root'] }),
+      )
+      const strategy = new RoleAuthorizationStrategy(registry, requestContext)
+
+      const result = await strategy.execute(request)
+
+      expect(result.isOk()).toBe(true)
+    })
+
+    it('falls back to the command role check when user is not a superadmin', async () => {
+      const requestContext = makeRequestContext({ roles: ['viewer'] })
+      const { registry, getPolicyMock } = makePolicyRegistry(
+        makePolicy({ permissions: ['read'], roles: ['admin'] }),
+        makePolicy({ roles: ['root'] }),
+      )
+      const strategy = new RoleAuthorizationStrategy(registry, requestContext)
+
+      const result = await strategy.execute(request)
+
+      expect(result.isOk()).toBe(false)
+      expect(result.getErrorOrThrow().code).toBe(ERROR_CODES.FORBIDDEN)
       expect(getPolicyMock).toHaveBeenCalledWith('TestCommand')
     })
   })

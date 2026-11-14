@@ -1,6 +1,7 @@
 import type {
   IContextAccessor,
   Identity,
+  IPolicyRegistry,
   IRequest,
   IStrategy,
   RequestContext,
@@ -29,13 +30,24 @@ export abstract class BaseAuthorizationStrategy<
    * @since 2025-09-30
    * @link https://github.com/xeno-js/xeno-js
    */
-  constructor(private readonly _requestContext: IContextAccessor<RequestContext>) {}
+  constructor(
+    protected readonly _policy: IPolicyRegistry,
+    private readonly _requestContext: IContextAccessor<RequestContext>,
+  ) {}
 
   public async execute(request: IRequest): Promise<ResultType<void>> {
     const context = this._requestContext.getContext()
 
     if (!Guards.isDefined(context)) {
       return Result.fail(AppError.unauthorized(request.intent, 'User is not authenticated.'))
+    }
+
+    const superadmin = this._policy.getPolicy('superadmin')
+    if (!Guards.isNullOrEmpty(superadmin?.roles)) {
+      const auth = context?.identity
+      const roles = auth?.roles ?? []
+      const hasRequiredRole = superadmin.roles?.some((role) => roles.includes(role))
+      if (hasRequiredRole) return Result.ok()
     }
 
     return await this.performAuthorizationCheck(request, context.identity)

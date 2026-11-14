@@ -29,6 +29,12 @@ export class PolicyRegistry implements IPolicyRegistry {
     return this
   }
 
+  public setSuperadminRoles(roles: string[]): this {
+    const key = this.getKey('superadmin')
+    this._cache.set(key, { roles })
+    return this
+  }
+
   public getPolicy(intent: string): Optional<AuthPolicy> {
     const key = this.getKey(intent)
     return this._cache.get(key)
