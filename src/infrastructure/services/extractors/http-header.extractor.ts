@@ -43,8 +43,8 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
       undefined
     const spanId = GuidHelper.parse(headers.get('x-span-id') ?? undefined)
     const parentSpanId = headers.get('x-parent-span-id') ?? undefined
-    const acceptHeader = headers.get('accept')
-    const contentTypeHeader = headers.get('content-type')
+    const acceptHeader = headers.get('accept') ?? undefined
+    const contentTypeHeader = headers.get('content-type') ?? undefined
     const userAgent = headers.get('user-agent') ?? undefined
     const returnAddress = headers.get('x-return-address') ?? undefined
     const sequenceId = headers.get('x-sequence-id') ?? undefined
@@ -63,8 +63,7 @@ export class HttpHeaderExtractor implements IServiceExtractor<Request['headers']
     const referer = headers.get('referer') ?? undefined
     const cleanReferer = HttpHelper.sanitizeOriginUrl(referer)
 
-    const accept = acceptHeader === '*/*' ? undefined : acceptHeader
-    const formatIndicator = accept ?? contentTypeHeader ?? 'application/json'
+    const formatIndicator = HttpHelper.resolveFormatIndicator(acceptHeader, contentTypeHeader)
 
     const metadata: Metadata = {
       correlationId,

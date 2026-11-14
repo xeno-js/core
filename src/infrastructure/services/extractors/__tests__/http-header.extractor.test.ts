@@ -86,5 +86,46 @@ describe('HttpHeaderExtractor', () => {
 
       expect(result.clientIp).toBe('172.16.0.1')
     })
+
+    it('normalizes formatIndicator from Accept header values with multiple media types', () => {
+      const cookieExtractor = makeCookieExtractor(undefined)
+      const extractor = new HttpHeaderExtractor(cookieExtractor, undefined, 'XSRF-TOKEN')
+
+      const result = extractor.extract(
+        new Headers({
+          accept: 'application/json, text/plain, */*',
+        }),
+      )
+
+      expect(result.formatIndicator).toBe('application/json')
+    })
+
+    it('falls back to Content-Type when Accept is wildcard', () => {
+      const cookieExtractor = makeCookieExtractor(undefined)
+      const extractor = new HttpHeaderExtractor(cookieExtractor, undefined, 'XSRF-TOKEN')
+
+      const result = extractor.extract(
+        new Headers({
+          'accept': '*/*',
+          'content-type': 'application/problem+json; charset=utf-8',
+        }),
+      )
+
+      expect(result.formatIndicator).toBe('application/problem+json')
+    })
+
+    it('falls back to application/json when headers contain invalid media types', () => {
+      const cookieExtractor = makeCookieExtractor(undefined)
+      const extractor = new HttpHeaderExtractor(cookieExtractor, undefined, 'XSRF-TOKEN')
+
+      const result = extractor.extract(
+        new Headers({
+          'accept': 'invalid value',
+          'content-type': 'still invalid',
+        }),
+      )
+
+      expect(result.formatIndicator).toBe('application/json')
+    })
   })
 })
