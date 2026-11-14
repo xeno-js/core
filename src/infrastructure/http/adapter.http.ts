@@ -35,7 +35,6 @@ export class HttpAdapter implements IHttpAdapter {
 
     xenoRequest.path = safeUrl.pathname
     xenoRequest.socket = req.socket
-
     xenoRequest.query = req.query ?? HttpRouteParamHelper.extractQueryParams(req.url)
 
     return xenoRequest
