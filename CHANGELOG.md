@@ -1,3 +1,10 @@
+## [5.0.1](https://github.com/xeno-js/xeno-js/compare/v5.0.0...v5.0.1) (2026-11-18)
+
+### Bug Fixes
+
+- update shared packageand resolved unknown validation err
+  ([cf538c1](https://github.com/xeno-js/xeno-js/commit/cf538c1bcf4571c72c556734189fdfb0ca0adc08))
+
 # [5.0.0](https://github.com/xeno-js/xeno-js/compare/v4.2.2...v5.0.0) (2026-11-17)
 
 ## [4.2.2](https://github.com/xeno-js/xeno-js/compare/v4.2.1...v4.2.2) (2026-11-14)
