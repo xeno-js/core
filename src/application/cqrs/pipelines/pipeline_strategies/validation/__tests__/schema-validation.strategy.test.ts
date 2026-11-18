@@ -82,5 +82,40 @@ describe('SchemaValidationStrategy', () => {
       expect(appError.cause).toBeInstanceOf(Error)
       expect((appError.cause as Error).message).toContain('some error')
     })
+
+    it('should propagate the detailed validator cause instead of the generic message', async () => {
+      const { validator, validate } = makeValidator()
+      const validatorError = AppError.create({
+        code: ERROR_CODES.VALIDATION_FAILED,
+        message: 'errors.validation_failed',
+        status: STATUS_CODES.BAD_REQUEST,
+        name: 'ZodValidatorService',
+        cause: new Error('[name] Required, [email] Invalid email'),
+      })
+      validate.mockResolvedValue(Result.fail(validatorError))
+
+      const strategy = new SchemaValidationStrategy(validator)
+      const result = await strategy.execute(makeRequest())
+
+      const cause = result.getErrorOrThrow().cause as Error
+      expect(cause.message).toBe('Validation failed: [name] Required, [email] Invalid email')
+    })
+
+    it('should attach the original validator error without interpreting its fields', async () => {
+      const { validator, validate } = makeValidator()
+      const validatorError = Object.assign(
+        AppError.validationError(
+          'ZodValidatorService',
+          'Validation failed for schema: [name] Required',
+        ),
+        { issues: [{ code: 'invalid_type', path: 'name', message: 'Required' }] },
+      )
+      validate.mockResolvedValue(Result.fail(validatorError))
+
+      const strategy = new SchemaValidationStrategy(validator)
+      const result = await strategy.execute(makeRequest())
+
+      expect(result.getErrorOrThrow().validatorError).toBe(validatorError)
+    })
   })
 })

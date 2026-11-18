@@ -25,13 +25,19 @@ export class SchemaValidationStrategy implements IStrategy<IRequest, boolean> {
     const key = request.intent
     const parseResult = await this._validator.validate(key, request)
 
-    if (!parseResult.isOk())
+    if (!parseResult.isOk()) {
+      const validatorError = parseResult.getErrorOrThrow()
+      const details =
+        validatorError.cause instanceof Error
+          ? validatorError.cause.message
+          : validatorError.message
+
       return Result.fail(
-        AppError.validationError(
-          request.intent,
-          `Validation failed: ${parseResult.getErrorOrThrow().message}`,
-        ),
+        Object.assign(AppError.validationError(request.intent, `Validation failed: ${details}`), {
+          validatorError,
+        }),
       )
+    }
 
     return Result.ok(true)
   }
