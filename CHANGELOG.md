@@ -1,3 +1,10 @@
+# [5.1.0](https://github.com/xeno-js/xeno-js/compare/v5.0.2...v5.1.0) (2026-11-24)
+
+### Features
+
+- fix log error and adding enrichment identity pipeline
+  ([ec4cc6b](https://github.com/xeno-js/xeno-js/commit/ec4cc6bf2b1972b4435963b6ae1a48dc4969eb2d))
+
 ## [5.0.2](https://github.com/xeno-js/xeno-js/compare/v5.0.1...v5.0.2) (2026-11-18)
 
 ### Bug Fixes
