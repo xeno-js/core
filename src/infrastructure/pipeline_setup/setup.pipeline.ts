@@ -1,6 +1,7 @@
 import type {
   AuthorizationOptions,
   IdempotencyOptions,
+  IdentityEnrichmentOptions,
   IPipelineSetup,
   XenoRegistry,
 } from '@xeno-js/shared'
@@ -29,6 +30,7 @@ export class PipelineSetupContext<
     []
   private _authzOpts: Optional<AuthorizationOptions<TRegistry>> = undefined
   private _idempotencyOpts: Optional<IdempotencyOptions> = undefined
+  private _identityEnrichmentOpts: Optional<IdentityEnrichmentOptions> = undefined
 
   public set idempotencyOpts(opts: IdempotencyOptions) {
     this._idempotencyOpts = opts
@@ -37,6 +39,16 @@ export class PipelineSetupContext<
   public get idempotencyOpts(): Optional<IdempotencyOptions> {
     if (Guards.isDefined(this._idempotencyOpts)) return Object.freeze(this._idempotencyOpts)
     return this._idempotencyOpts
+  }
+
+  public set identityEnrichmentOpts(opts: IdentityEnrichmentOptions) {
+    this._identityEnrichmentOpts = opts
+  }
+
+  public get identityEnrichmentOpts(): Optional<IdentityEnrichmentOptions> {
+    if (Guards.isDefined(this._identityEnrichmentOpts))
+      return Object.freeze(this._identityEnrichmentOpts)
+    return this._identityEnrichmentOpts
   }
 
   public set authzOpts(opts: AuthorizationOptions<TRegistry>) {

@@ -2,10 +2,12 @@ import type { ICommand, IQuery } from '@xeno-js/shared'
 import type {
   IAppBuilder,
   IModule,
+  IRequestContext,
   IServiceContainer,
   IServiceScopeAccessor,
   IXenoApplication,
   PipelinePlugin,
+  RequestContext,
   XenoRegistry,
 } from '@xeno-js/shared'
 import { Guards, LOG_LEVEL } from '@xeno-js/shared'
@@ -15,8 +17,10 @@ import {
   CompositePipeline,
   ExceptionPipeline,
   IdempotencyPipeline,
+  IdentityEnrichmentPipeline,
   LoggingPipeline,
   Mediator,
+  NoopIdentityEnrichmentStrategy,
   QueryCachingPipeline,
 } from '@/application'
 import { CommandCacheInvalidationBehavior } from '@/application/cqrs/pipelines/cache-invalidation.pipeline'
@@ -71,6 +75,16 @@ export class CqrsModule<TRegistry extends XenoRegistry = XenoRegistry> implement
     if (Guards.isDefined(context.authzOpts)) {
       const authzPipeline = await AuthUtils.addAuthZ(container, context.authzOpts)
       context.addCommon(authzPipeline, 40)
+    }
+
+    if (Guards.isDefined(context.identityEnrichmentOpts)) {
+      const requestContext = container.resolve(TOKENS.REQUEST_CONTEXT) as IRequestContext<
+        RequestContext,
+        TRegistry
+      >
+      const strategy =
+        context.identityEnrichmentOpts.strategy ?? new NoopIdentityEnrichmentStrategy()
+      context.addCommon(new IdentityEnrichmentPipeline(requestContext, strategy), 20)
     }
 
     if (

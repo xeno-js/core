@@ -26,29 +26,28 @@ export const LoggerUtils = Object.freeze({
         correlationId: ctx?.tracing?.correlationId,
         spanId: ctx?.tracing?.spanId,
         startTime: ctx?.tracing?.startTime,
-        parentSpanId: ctx?.tracing.parentSpanId,
+        parentSpanId: ctx?.tracing?.parentSpanId,
       },
       messaging: ctx?.messaging,
     }
     return StringHelper.safeStringifyObject(context)
   },
 
-  toNormalizeError(error: unknown): unknown {
+  toNormalizeError(error: unknown): Dictionary {
     if (error instanceof Error) {
       return {
-        message: error.message,
+        ...error,
         name: error.name,
+        message: error.message,
         stack: error.stack,
-        cause: error.cause,
+        cause: Guards.isDefined(error.cause)
+          ? LoggerUtils.toNormalizeError(error.cause)
+          : error.cause,
       }
     }
-    const errorString = Guards.isString(error) ? error : StringHelper.safeStringify(error)
-    const customError = new Error(errorString)
-
-    if (Guards.isObject(error) && Guards.isDefined(error)) {
-      Object.assign(customError, error)
+    if (Guards.isObject(error)) {
+      return { ...error }
     }
-
-    return customError
+    return { message: Guards.isString(error) ? error : StringHelper.safeStringify(error) }
   },
 } as const)

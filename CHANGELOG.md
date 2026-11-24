@@ -1,3 +1,10 @@
+## [5.0.2](https://github.com/xeno-js/xeno-js/compare/v5.0.1...v5.0.2) (2026-11-18)
+
+### Bug Fixes
+
+- update shared package
+  ([aed1430](https://github.com/xeno-js/xeno-js/commit/aed1430cbed97aa9ce9a3204f62b448b014cbfac))
+
 ## [5.0.1](https://github.com/xeno-js/xeno-js/compare/v5.0.0...v5.0.1) (2026-11-18)
 
 ### Bug Fixes

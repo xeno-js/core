@@ -11,6 +11,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BaseLogger } from '../base.logger'
 import { LoggerUtils } from '../utils'
 
+vi.mock('../utils', () => ({
+  LoggerUtils: {
+    toSafeContext: vi.fn(),
+    toNormalizeError: vi.fn(),
+  },
+}))
+
 const makeRequestContext = (
   executionContext?: RequestContext,
 ): IContextAccessor<RequestContext> => ({
@@ -55,7 +62,9 @@ describe('BaseLogger', () => {
     trackMock = vi.fn()
     executionContext = makeExecutionContext()
     requestContext = makeRequestContext(executionContext)
-    expectedSafeContext = LoggerUtils.toSafeContext(executionContext)
+    expectedSafeContext = { identity: '{}', network: '{}', tracing: '{}' }
+    vi.mocked(LoggerUtils.toSafeContext).mockReset().mockReturnValue(expectedSafeContext)
+    vi.mocked(LoggerUtils.toNormalizeError).mockReset().mockReturnValue({ message: undefined })
   })
 
   describe('info()', (): void => {
@@ -69,7 +78,7 @@ describe('BaseLogger', () => {
         LOG_LEVEL.INFO,
         `[${LOG_LEVEL_NAMES[LOG_LEVEL.INFO]}] hello`,
         expectedSafeContext,
-        undefined,
+        { message: undefined },
       )
     })
 
@@ -78,6 +87,8 @@ describe('BaseLogger', () => {
       const logger = new BaseLogger(requestContext, LOG_LEVEL.WARN, [client])
       logger.info('silent')
       expect(trackMock).not.toHaveBeenCalled()
+      expect(LoggerUtils.toSafeContext).not.toHaveBeenCalled()
+      expect(LoggerUtils.toNormalizeError).not.toHaveBeenCalled()
     })
   })
 
@@ -92,7 +103,7 @@ describe('BaseLogger', () => {
         LOG_LEVEL.WARN,
         `[${LOG_LEVEL_NAMES[LOG_LEVEL.WARN]}] careful`,
         expectedSafeContext,
-        undefined,
+        { message: undefined },
       )
     })
 
@@ -115,7 +126,7 @@ describe('BaseLogger', () => {
         LOG_LEVEL.DEBUG,
         `[${LOG_LEVEL_NAMES[LOG_LEVEL.DEBUG]}] verbose`,
         expectedSafeContext,
-        undefined,
+        { message: undefined },
       )
     })
 
@@ -132,6 +143,13 @@ describe('BaseLogger', () => {
       const client: ILoggerClient = { track: trackMock as ILoggerClient['track'] }
       const logger = new BaseLogger(requestContext, LOG_LEVEL.INFO, [client])
       const err = new Error('boom')
+      const normalizedError = {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        cause: err.cause,
+      }
+      vi.mocked(LoggerUtils.toNormalizeError).mockReturnValue(normalizedError)
       logger.error('something went wrong', err)
 
       expect(trackMock).toHaveBeenCalledOnce()
@@ -139,8 +157,9 @@ describe('BaseLogger', () => {
         LOG_LEVEL.ERROR,
         `[${LOG_LEVEL_NAMES[LOG_LEVEL.ERROR]}] something went wrong`,
         expectedSafeContext,
-        err,
+        normalizedError,
       )
+      expect(LoggerUtils.toNormalizeError).toHaveBeenCalledExactlyOnceWith(err)
     })
 
     it('does NOT forward ERROR when minLevel is above ERROR', (): void => {
@@ -161,9 +180,10 @@ describe('BaseLogger', () => {
       expect(trackMock).toHaveBeenCalledWith(
         LOG_LEVEL.INFO,
         `[${LOG_LEVEL_NAMES[LOG_LEVEL.INFO]}] no context`,
-        LoggerUtils.toSafeContext(undefined),
-        undefined,
+        expectedSafeContext,
+        { message: undefined },
       )
+      expect(LoggerUtils.toSafeContext).toHaveBeenCalledExactlyOnceWith(undefined)
     })
   })
 
@@ -177,6 +197,12 @@ describe('BaseLogger', () => {
 
       expect(trackMock).toHaveBeenCalledOnce()
       expect(trackMock2).toHaveBeenCalledOnce()
+      expect(trackMock2).toHaveBeenCalledWith(
+        LOG_LEVEL.INFO,
+        `[${LOG_LEVEL_NAMES[LOG_LEVEL.INFO]}] broadcast`,
+        expectedSafeContext,
+        { message: undefined },
+      )
     })
 
     it('does nothing when the clients array is empty', (): void => {

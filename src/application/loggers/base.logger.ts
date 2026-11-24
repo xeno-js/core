@@ -71,8 +71,9 @@ export class BaseLogger implements ILogger {
     const logMessage = `[${LOG_LEVEL_NAMES[level]}] ${message}`
     const context = this._requestContext.getContext()
     const safeContext = LoggerUtils.toSafeContext(context)
+    const safeError = LoggerUtils.toNormalizeError(error)
     for (const logger of this._loggers) {
-      logger.track(level, logMessage, safeContext, error)
+      logger.track(level, logMessage, safeContext, safeError)
     }
   }
 }
